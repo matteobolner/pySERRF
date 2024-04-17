@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "pyserrf"
+version = "0.1.0"
+description = "Python implementation of the Systematic Error Removal Using Random Forest algorithm"
+authors = ["matteobolner <matteo.bolner2@unibo.it>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+numpy = "^1.26.4"
+pandas = "^2.2.2"
+scikit-learn = "^1.4.2"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
