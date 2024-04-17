@@ -1,2 +1,4 @@
 test_data/
-serrf.R
+R_code
+.Rhistory
+pyserrf/__pycache__/

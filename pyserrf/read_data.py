@@ -27,7 +27,36 @@ def rename_duplicate_columns(df):
 
 
 def read_serff_format_data(path, sheet=0):
-    # TODO add documentation
+    """
+    Read data in SERRF format from a file or Excel sheet
+
+    Parameters
+    ----------
+    path : str
+        Path to the input file. If the file is in Excel format, specify the sheet name or index.
+    sheet : int, str, optional
+        Sheet name or index of the sheet to be read. Default is the first sheet.
+
+    Returns
+    -------
+    result : dict
+        A dictionary with four keys: 'p', 'f', 'e', and 'e_matrix'.
+        The value of each key is a Pandas DataFrame.
+
+        * 'p' is the sample information table
+        * 'f' is the compound information table
+        * 'e' is the response table with samples as rows and compounds as columns
+        * 'e_matrix' is the response matrix with samples as rows and compounds as columns
+
+        If there is no 'label' column in the data, raise a ValueError.
+
+        All tables are stripped of whitespaces in the 'label' column.
+
+    Raises
+    ------
+    ValueError
+        If the data does not have 'label' column.
+    """
     if path.endswith(".xlsx"):
         data = pd.read_excel(path, header=None, sheet_name=sheet)
     else:
@@ -98,19 +127,3 @@ def read_serff_format_data(path, sheet=0):
     e_matrix = e.iloc[:, 1:]
 
     return {"p": p, "f": f, "e": e, "e_matrix": e_matrix}
-
-
-path = "test_data/SERRF example dataset.xlsx"
-sheet = 0
-
-test = read_serff_format_data(path, sheet)
-
-for i in "e", "f", "e_matrix", "p":
-    temp_r = pd.read_table(f"test_data/{i}.tsv").fillna("na")
-    temp_r = temp_r.reset_index(drop=True)
-    temp_r.columns = [i.replace(".", "_") for i in temp_r.columns]
-    tempdf = test[i].reset_index(drop=True).fillna("na")
-
-    if not temp_r.equals(tempdf):
-        print(f"{i} is different")
-        break
