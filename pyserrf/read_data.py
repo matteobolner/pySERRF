@@ -1,6 +1,16 @@
 import pandas as pd
 import numpy as np
 
+def read_serff_format_data_simple(input_path):
+    data = pd.read_excel(input_path, header=None)
+    data.replace("", np.nan, inplace=True)
+    data=data.transpose()
+    data.columns=data.iloc[1]
+    data=data.iloc[2::]
+    data.columns.name=None
+    data=data.reset_index(drop=True)
+    return data
+
 
 def rename_duplicate_columns(df):
     """
