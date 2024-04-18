@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from sklearn.ensemble
+from sklearn.ensemble import RandomForestRegressor
 from pyserrf.read_data import read_serff_format_data
 from pyserrf.utils import replace_zero_values, replace_nan_values, center_data, standard_scaler
 
@@ -22,7 +22,15 @@ num=10
 
 all = pd.concat([training, target], axis=1)
 
+#all.columns=[i.split("_")[0] for i in all.columns]
 #normalized = np.zeros(len(all.columns))
+
+
+batch='A'
+
+LA QUESTIONE RENAME LABEL IDENTICHE VA CAPITA A MONTE
+
+
 
 for index, row in all.iterrows():
     for batch in batches.unique():
@@ -59,13 +67,10 @@ for batch in batches.unique():
 pred = pd.DataFrame(index=range(all.shape[0]), columns=range(all.shape[1]))
 batch='A'
 
-
-
 for index,row in all.iterrows():
     break
     #normalized = np.zeros(len(all.columns))
     normalized=pd.Series()
-
     qc_train_value = []
     qc_predict_value= []
     sample_value = []
@@ -87,7 +92,6 @@ for index,row in all.iterrows():
 
         current_batch_qc_labels=p[(p['batch']==batch)&(p['sampleType']=='qc')]['label'].tolist()
         current_batch_sample_labels=p[(p['batch']==batch)&(p['sampleType']=='sample')]['label'].tolist()
-
         current_batch_qc_data=row[current_batch_qc_labels]
         current_batch_target_data=row[current_batch_sample_labels]
 
@@ -108,11 +112,10 @@ for index,row in all.iterrows():
         ####DA CAPIRE. CONTROLLA CODICE R
         else:
             test_data_x=e_current_batch.loc[list(sel_var),current_batch_sample_labels].apply(standard_scaler, axis=1).transpose()
-
         train_NA_index=train_data_x.apply(lambda x:x.isna().any())
+
         train_data_x=train_data_x[train_NA_index[~train_NA_index].index]
         test_data_x=test_data_x[train_NA_index[~train_NA_index].index]
-
         ### TODO: DA CAPIRE, PER ORA NON INCLUSA -> PROBABILMENTE se test_data_x e una serie la transponi
         #if(!"matrix" %in% class(test_data_x)){ # !!!
         #  test_data_x = t(test_data_x)
@@ -138,4 +141,30 @@ for index,row in all.iterrows():
 
             train_data.columns=['y']+[f"V{i}" for i in range(1,len(train_data.columns))]
             #random_seed=1
-            model=
+            model=RandomForestRegressor(n_estimators=500, min_samples_leaf=5, random_state=1)
+            model.fit(X=train_data[train_data.columns[1::]], y=train_data['y'], sample_weight=None)
+            test_data = test_data_x
+            test_data.columns = train_data.columns[1::]
+            norm = e_current_batch.loc[index]
+
+            minus=True
+            if minus:
+                norm[current_batch_qc_labels]=e_current_batch.loc[index, current_batch_qc_labels]-((model.predict(train_data[train_data.columns[1::]])+e_current_batch.loc[index, current_batch_qc_labels].mean())-all.loc[index,p[p["sampleType"] == 'qc']["label"]].mean())
+                norm[current_batch_sample_labels]=e_current_batch.loc[index, current_batch_sample_labels]-((model.predict(test_data)+e_current_batch.loc[index, current_batch_sample_labels].mean())-all.loc[index,p[p["sampleType"] == 'sample']["label"]].median())
+            else:
+                norm[current_batch_qc_labels]=e_current_batch.loc[index, current_batch_qc_labels]/((model.predict(train_data[train_data.columns[1::]])+e_current_batch.loc[index, current_batch_qc_labels].mean())/all.loc[index,p[p["sampleType"] == 'qc']["label"]].mean())
+                norm[current_batch_sample_labels]=e_current_batch.loc[index, current_batch_sample_labels]/((model.predict(test_data)+e_current_batch.loc[index, current_batch_sample_labels].mean() - model.predict(test_data).mean())/all.loc[index,p[p["sampleType"] == 'sample']["label"]].median())
+
+zero_norm_values=norm[current_batch_sample_labels][norm[current_batch_sample_labels]<186026.346163]
+zero_norm_values_e_value=e_current_batch.loc[index,current_batch_sample_labels].loc[zero_norm_values.index]
+original_order=norm[current_batch_sample_labels].index
+norm[current_batch_sample_labels]=norm[current_batch_sample_labels].drop(zero_norm_values.index)
+norm[current_batch_sample_labels].drop(zero_norm_values.index)
+for i in zero_norm_values_e_value.index:
+    norm[current_batch_sample_labels].loc[]
+
+norm[current_batch_sample_labels].loc['sample01']=0
+
+norm.loc[i, ]
+zero_norm_values
+zero_norm_values_e_value
