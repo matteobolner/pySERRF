@@ -6,10 +6,13 @@ from pyserrf.utils import replace_zero_values, replace_nan_values, center_data, 
 
 data = read_serff_format_data("test_data/SERRF example dataset.xlsx")
 
+
 e = data["e"]
 p = data["p"]
 batches = p["batch"]
 e_matrix = data["e_matrix"]
+
+
 
 
 training = e_matrix[[i for i in e_matrix.columns if "QC" in i]]
@@ -22,15 +25,13 @@ num=10
 
 all = pd.concat([training, target], axis=1)
 
+
+
 #all.columns=[i.split("_")[0] for i in all.columns]
 #normalized = np.zeros(len(all.columns))
 
 
 batch='A'
-
-LA QUESTIONE RENAME LABEL IDENTICHE VA CAPITA A MONTE
-
-
 
 for index, row in all.iterrows():
     for batch in batches.unique():
@@ -63,9 +64,10 @@ for batch in batches.unique():
     corrs_target[batch]=target_current_batch_scaled.transpose().corr(method='spearman')
 
 
-
 pred = pd.DataFrame(index=range(all.shape[0]), columns=range(all.shape[1]))
 batch='A'
+
+
 
 for index,row in all.iterrows():
     break
@@ -96,7 +98,6 @@ for index,row in all.iterrows():
         current_batch_target_data=row[current_batch_sample_labels]
 
         factor=np.std(current_batch_qc_data, ddof=1)/np.std(current_batch_target_data, ddof=1)
-
         if ((factor == 0) | (factor==np.nan) | (factor <1)):
             train_data_y = center_data(current_batch_qc_data)
         else:
@@ -112,6 +113,7 @@ for index,row in all.iterrows():
         ####DA CAPIRE. CONTROLLA CODICE R
         else:
             test_data_x=e_current_batch.loc[list(sel_var),current_batch_sample_labels].apply(standard_scaler, axis=1).transpose()
+
         train_NA_index=train_data_x.apply(lambda x:x.isna().any())
 
         train_data_x=train_data_x[train_NA_index[~train_NA_index].index]
@@ -146,10 +148,19 @@ for index,row in all.iterrows():
             test_data = test_data_x
             test_data.columns = train_data.columns[1::]
             norm = e_current_batch.loc[index]
-
             minus=True
             if minus:
-                norm[current_batch_qc_labels]=e_current_batch.loc[index, current_batch_qc_labels]-((model.predict(train_data[train_data.columns[1::]])+e_current_batch.loc[index, current_batch_qc_labels].mean())-all.loc[index,p[p["sampleType"] == 'qc']["label"]].mean())
+                norm[current_batch_qc_labels]=
+                e_current_batch.loc[index, current_batch_qc_labels]
+                -
+                (
+                    (model.predict(train_data[train_data.columns[1::]])
+                    +e_current_batch.loc[index, current_batch_qc_labels].mean()
+                    )
+                    -
+                    all.loc[index,p[p["sampleType"] == 'qc']["label"]].mean())
+            all.loc[index,p[p["sampleType"] == 'qc']["label"]]
+p[p['sampleType']=='qc']['label']
                 norm[current_batch_sample_labels]=e_current_batch.loc[index, current_batch_sample_labels]-((model.predict(test_data)+e_current_batch.loc[index, current_batch_sample_labels].mean())-all.loc[index,p[p["sampleType"] == 'sample']["label"]].median())
             else:
                 norm[current_batch_qc_labels]=e_current_batch.loc[index, current_batch_qc_labels]/((model.predict(train_data[train_data.columns[1::]])+e_current_batch.loc[index, current_batch_qc_labels].mean())/all.loc[index,p[p["sampleType"] == 'qc']["label"]].mean())
