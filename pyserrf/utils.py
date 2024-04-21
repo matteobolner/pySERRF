@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 
 
-def replace_zero_values(row: pd.Series) -> pd.Series:
+def replace_zero_values(row: pd.Series, random_seed: int = 42) -> pd.Series:
     """
     Replace zero values in a pandas series with a normally distributed
     random variable. The normal distribution has a mean of the minimum non-NaN value
@@ -19,14 +19,14 @@ def replace_zero_values(row: pd.Series) -> pd.Series:
         The input series with zero values replaced by normally distributed random
         variables
     """
-
+    rng = random.default_rng(seed=random_seed)
     zero_values = row[row == 0].index  # Indices of zero values
-    if len(zero_values)==0:
+    if len(zero_values) == 0:
         return row
     min_non_nan = row.dropna().min()  # Minimum non-NaN value in the row
     mean = min_non_nan + 1  # Mean of the normal distribution
     std = 0.1 * (min_non_nan + 0.1)  # Standard deviation of the normal distribution
-    zero_replacements = np.random.normal(
+    zero_replacements = rng.normal(
         loc=mean,
         scale=std,
         size=len(zero_values),
@@ -35,7 +35,7 @@ def replace_zero_values(row: pd.Series) -> pd.Series:
     return row
 
 
-def replace_nan_values(row):
+def replace_nan_values(row, random_seed: int = 42) -> pd.Series:
     """
     Replace NaN values in a row of a pandas DataFrame with normally distributed
     random variables. The normal distribution has a mean of half the minimum
@@ -53,15 +53,16 @@ def replace_nan_values(row):
         The input row with NaN values replaced by normally distributed random
         variables
     """
+    rng = random.default_rng(seed=random_seed)
     nan_values = row[row.isna()]  # Indices of NaN values
-    if len(nan_values)==0:
+    if len(nan_values) == 0:
         return row
     print(len(nan_values))
     non_nan_values = row.dropna()  # Non-NaN values in the row
     min_non_nan = np.min(non_nan_values)  # Minimum non-NaN value in the row
     mean = 0.5 * (min_non_nan + 1)  # Mean of the normal distribution
     std = 0.1 * (min_non_nan + 0.1)  # Standard deviation of the normal distribution
-    nan_replacements = np.random.normal(
+    nan_replacements = rng.normal(
         loc=mean,
         scale=std,
         size=len(nan_values),
@@ -76,13 +77,14 @@ def check_for_nan_or_zero(data):
     else:
         return True
 
+
 def handle_zero_and_nan(merged, metabolites):
     if check_for_nan_or_zero(merged[metabolites]):
         groups = []
         for name, group in merged.groupby(by="batch"):
             if check_for_nan_or_zero(group[metabolites]):
-                group[metabolites]=group[metabolites].apply(replace_zero_values)
-                group[metabolites]=group[metabolites].apply(replace_nan_values)
+                group[metabolites] = group[metabolites].apply(replace_zero_values)
+                group[metabolites] = group[metabolites].apply(replace_nan_values)
                 groups.append(group)
             else:
                 groups.append(group)
@@ -92,10 +94,12 @@ def handle_zero_and_nan(merged, metabolites):
     else:
         return merged
 
+
 def center_data(data: np.ndarray) -> np.ndarray:
     mean = data.mean()
     centered = data - mean
     return centered
+
 
 def standard_scaler(data: np.ndarray) -> np.ndarray:
     """
@@ -111,26 +115,26 @@ def standard_scaler(data: np.ndarray) -> np.ndarray:
     array-like
         The standardized data.
     """
-    centered=center_data(data)
+    centered = center_data(data)
     std = data.std(ddof=1)
     scaled = centered / std
     return scaled
 
 
 def get_corrs_by_sample_type_and_batch(merged, metabolites):
-    corrs_train={}
-    corrs_target={}
+    corrs_train = {}
+    corrs_target = {}
 
-    for batch,group in merged.groupby(by='batch'):
-        batch_training=group[group['sampleType']=='qc']
-        batch_training_scaled=batch_training[metabolites].apply(standard_scaler)
-        corrs_train[batch]=batch_training_scaled.corr(method='spearman')
-        batch_target=group[group['sampleType']!='qc']
-        if len(batch_target)==0:
-            corrs_target[batch]=np.nan
+    for batch, group in merged.groupby(by="batch"):
+        batch_training = group[group["sampleType"] == "qc"]
+        batch_training_scaled = batch_training[metabolites].apply(standard_scaler)
+        corrs_train[batch] = batch_training_scaled.corr(method="spearman")
+        batch_target = group[group["sampleType"] != "qc"]
+        if len(batch_target) == 0:
+            corrs_target[batch] = np.nan
         else:
-            batch_target_scaled=batch_target[metabolites].apply(standard_scaler)
-            corrs_target[batch]=batch_target_scaled.corr(method='spearman')
+            batch_target_scaled = batch_target[metabolites].apply(standard_scaler)
+            corrs_target[batch] = batch_target_scaled.corr(method="spearman")
     return corrs_train, corrs_target
 
 
@@ -142,6 +146,7 @@ def get_top_metabolites_in_both_correlations(series1, series2, num):
             set(series1[0:l].index).intersection(set(series2[0:l].index))
         )
         l += 1
+        # print(len(selected))
     return selected
 
 
