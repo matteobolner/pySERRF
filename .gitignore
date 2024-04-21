@@ -2,3 +2,5 @@ test_data/
 R_code
 .Rhistory
 pyserrf/__pycache__/
+pyserrf/info.txt
+normed.tsv

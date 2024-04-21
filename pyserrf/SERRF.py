@@ -14,10 +14,11 @@ from pyserrf.utils import (
     detect_outliers,
 )
 
-##PARAMETERS
-n_metabolites = 10
-minus = False
-##PARAMETERS
+
+class SERRF:
+    def __init__(self, n_metabolites=10, minus=False):
+        self.n_metabolites = n_metabolites
+
 
 merged = read_serff_format_data_simple("test_data/SERRF example dataset.xlsx")
 
@@ -140,21 +141,22 @@ for metabolite in metabolites:
             )
             outliers = detect_outliers(data=norm, threshold=3)
             outliers = outliers[outliers]
+            outliers_in_test = outliers.index.intersection(norm_test.index)
             attempt = (
                 test_group[metabolite]
                 - (
                     (test_prediction + test_group[metabolite].mean())
                     - (merged[merged["sampleType"] != "qc"][metabolite].median())
                 )
-            ).loc[outliers.index]
+            ).loc[outliers_in_test]
 
             if len(outliers) > 0 & len(attempt) > 0:
                 if outliers.mean() > norm.mean():
                     if attempt.mean() < outliers.mean():
-                        norm_test.loc[out.index] = attempt
+                        norm_test.loc[outliers.index] = attempt
                 else:
                     if attempt.mean() > outliers.mean():
-                        norm_test.loc[out.index] = attempt
+                        norm_test.loc[outliers.index] = attempt
 
             if len(norm_test[norm_test < 0]) > 0:
                 norm_test[norm_test < 0] = test_group.loc[
@@ -179,57 +181,64 @@ for metabolite in metabolites:
     pred.append(normalized)
 
 normed = pd.concat(pred, axis=1)
-normed=pd.concat([sample_metadata, normed], axis=1)
-normed_target=normed[normed['sampleType']!='qc']
+normed = pd.concat([sample_metadata, normed], axis=1)
+normed_target = normed[normed["sampleType"] != "qc"]
 
 
-for index,row in normed_target.iterrows():
-    metadata=row.drop(metabolites)
-    row=row[metabolites]
+for index, row in normed_target.iterrows():
+    metadata = row.drop(metabolites)
+    row = row[metabolites]
 
-    changed_row=False
-    nan_values=row[row.isna()]
-    if len(nan_values)>0:
-        nan_values_replaced=np.random.normal(
-                loc=row.min(),
-                scale=np.std(row, ddof=1) * 0.01,
-                size=len(nan_values),
-            )
-        row.loc[nan_values.index]=nan_values_replaced
-        changed_row=True
-    negative_values=row[row<0]
+    changed_row = False
+    nan_values = row[row.isna()]
+    if len(nan_values) > 0:
+        nan_values_replaced = np.random.normal(
+            loc=row.min(),
+            scale=np.std(row, ddof=1) * 0.01,
+            size=len(nan_values),
+        )
+        row.loc[nan_values.index] = nan_values_replaced
+        changed_row = True
+    negative_values = row[row < 0]
     if len(negative_values) > 0:
-        negative_values_replaced=np.random.uniform(0, 1)*min(row[row>0])
-        row.loc[negative_values.index]=row.loc[negative_values.index].replace(negative_values.values, negative_values_replaced)
-        changed_row=True
-    if changed_row==True:
-        row=pd.concat([metadata, row])
-        normed_target.loc[index]=row
+        negative_values_replaced = np.random.uniform(0, 1) * min(row[row > 0])
+        row.loc[negative_values.index] = row.loc[negative_values.index].replace(
+            negative_values.values, negative_values_replaced
+        )
+        changed_row = True
+    if changed_row == True:
+        row = pd.concat([metadata, row])
+        normed_target.loc[index] = row
 
-normed_train=normed[normed['sampleType']=='qc']
+normed_train = normed[normed["sampleType"] == "qc"]
 
-for index,row in normed_train.iterrows():
-    metadata=row.drop(metabolites)
-    row=row[metabolites]
+for index, row in normed_train.iterrows():
+    metadata = row.drop(metabolites)
+    row = row[metabolites]
 
-    changed_row=False
-    nan_values=row[row.isna()]
-    if len(nan_values)>0:
-        nan_values_replaced=np.random.normal(
-                loc=row.min(),
-                scale=np.std(row, ddof=1) * 0.01,
-                size=len(nan_values),
-            )
-        row.loc[nan_values.index]=nan_values_replaced
-        changed_row=True
-    negative_values=row[row<0]
+    changed_row = False
+    nan_values = row[row.isna()]
+    if len(nan_values) > 0:
+        nan_values_replaced = np.random.normal(
+            loc=row.min(),
+            scale=np.std(row, ddof=1) * 0.01,
+            size=len(nan_values),
+        )
+        row.loc[nan_values.index] = nan_values_replaced
+        changed_row = True
+    negative_values = row[row < 0]
     if len(negative_values) > 0:
-        negative_values_replaced=np.random.uniform(0, 1)*min(row[row>0])
-        row.loc[negative_values.index]=row.loc[negative_values.index].replace(negative_values.values, negative_values_replaced)
-        changed_row=True
-    if changed_row==True:
-        row=pd.concat([metadata, row])
-        normed_train.loc[index]=row
+        negative_values_replaced = np.random.uniform(0, 1) * min(row[row > 0])
+        row.loc[negative_values.index] = row.loc[negative_values.index].replace(
+            negative_values.values, negative_values_replaced
+        )
+        changed_row = True
+    if changed_row == True:
+        row = pd.concat([metadata, row])
+        normed_train.loc[index] = row
 
-normed=pd.concat([normed_train, normed_target])
-normed.to_csv("normed.tsv", index=False, sep='\t')
+normed = pd.concat([normed_train, normed_target])
+
+normed = normed.rename(columns=metabolite_dict)
+
+normed.to_csv("normed.tsv", index=False, sep="\t")
