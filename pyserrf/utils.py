@@ -19,7 +19,7 @@ def replace_zero_values(row: pd.Series, random_seed: int = 42) -> pd.Series:
         The input series with zero values replaced by normally distributed random
         variables
     """
-    rng = random.default_rng(seed=random_seed)
+    rng = np.random.default_rng(seed=random_seed)
     zero_values = row[row == 0].index  # Indices of zero values
     if len(zero_values) == 0:
         return row
@@ -53,7 +53,7 @@ def replace_nan_values(row, random_seed: int = 42) -> pd.Series:
         The input row with NaN values replaced by normally distributed random
         variables
     """
-    rng = random.default_rng(seed=random_seed)
+    rng = np.random.default_rng(seed=random_seed)
     nan_values = row[row.isna()]  # Indices of NaN values
     if len(nan_values) == 0:
         return row

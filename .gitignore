@@ -4,3 +4,4 @@ R_code
 pyserrf/__pycache__/
 pyserrf/info.txt
 normed.tsv
+pyserrf/test.py

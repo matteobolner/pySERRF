@@ -1,6 +1,13 @@
 import pandas as pd
 import numpy as np
+
+import sys
+
+sys.path.append("/home/pelmo/work/workspace/pySERRF")
+
 from sklearn.ensemble import RandomForestRegressor
+
+
 from pyserrf.read_data import read_serff_format_data_simple
 from pyserrf.utils import (
     replace_zero_values,
@@ -14,13 +21,13 @@ from pyserrf.utils import (
     detect_outliers,
 )
 
-
-class SERRF:
-    def __init__(self, n_metabolites=10, minus=False):
-        self.n_metabolites = n_metabolites
+import sys
 
 
-merged = read_serff_format_data_simple("test_data/SERRF example dataset.xlsx")
+minus = False
+# merged = read_serff_format_data_simple("test_data/SERRF example dataset.xlsx")
+
+merged = read_serff_format_data_simple(sys.argv[1])
 
 sample_metadata_columns = ["batch", "sampleType", "time", "label"]
 
@@ -40,8 +47,7 @@ merged = handle_zero_and_nan(merged, metabolites)
 
 corrs_train, corrs_target = get_corrs_by_sample_type_and_batch(merged, metabolites)
 
-
-# metabolite='MET_1'
+rng = np.random.default_rng(seed=42)
 
 pred = []
 
@@ -81,6 +87,7 @@ for metabolite in metabolites:
                 ) / factor
             else:
                 training_data_y = center_data(training_group[metabolite])
+
         training_data_x = training_group[list(top_correlated)].apply(standard_scaler)
         if training_group[list(top_correlated)].empty:
             test_data_x = standard_scaler(test_group[list(top_correlated)])
@@ -95,7 +102,7 @@ for metabolite in metabolites:
             normalized = pd.concat([normalized, norm])
         else:
             model = RandomForestRegressor(
-                n_estimators=500, min_samples_leaf=5, random_state=1
+                n_estimators=500, min_samples_leaf=5, random_state=42
             )
             model.fit(X=training_data_x, y=training_data_y, sample_weight=None)
             training_prediction = model.predict(training_data_x)
@@ -135,7 +142,7 @@ for metabolite in metabolites:
             )
             norm = pd.concat([norm_training, norm_test]).sort_index()
             ##NOT SURE ABOUT LINE BELOW, WORKS AS INTENDED BUT VALUES GENERATED ARE VERY LOW (CENTERED ON ZERO); MIGHT BENEFIT FROM NORM MEAN AS CENTER
-            norm[~np.isfinite(norm)] = np.random.normal(
+            norm[~np.isfinite(norm)] = rng.normal(
                 scale=np.std(norm[np.isfinite(norm)], ddof=1) * 0.01,
                 size=len(norm[~np.isfinite(norm)]),
             )
@@ -192,7 +199,7 @@ for index, row in normed_target.iterrows():
     changed_row = False
     nan_values = row[row.isna()]
     if len(nan_values) > 0:
-        nan_values_replaced = np.random.normal(
+        nan_values_replaced = rng.normal(
             loc=row.min(),
             scale=np.std(row, ddof=1) * 0.01,
             size=len(nan_values),
@@ -201,7 +208,7 @@ for index, row in normed_target.iterrows():
         changed_row = True
     negative_values = row[row < 0]
     if len(negative_values) > 0:
-        negative_values_replaced = np.random.uniform(0, 1) * min(row[row > 0])
+        negative_values_replaced = rng.uniform(0, 1) * min(row[row > 0])
         row.loc[negative_values.index] = row.loc[negative_values.index].replace(
             negative_values.values, negative_values_replaced
         )
@@ -219,7 +226,7 @@ for index, row in normed_train.iterrows():
     changed_row = False
     nan_values = row[row.isna()]
     if len(nan_values) > 0:
-        nan_values_replaced = np.random.normal(
+        nan_values_replaced = rng.normal(
             loc=row.min(),
             scale=np.std(row, ddof=1) * 0.01,
             size=len(nan_values),
@@ -228,7 +235,7 @@ for index, row in normed_train.iterrows():
         changed_row = True
     negative_values = row[row < 0]
     if len(negative_values) > 0:
-        negative_values_replaced = np.random.uniform(0, 1) * min(row[row > 0])
+        negative_values_replaced = rng.uniform(0, 1) * min(row[row > 0])
         row.loc[negative_values.index] = row.loc[negative_values.index].replace(
             negative_values.values, negative_values_replaced
         )
@@ -241,4 +248,4 @@ normed = pd.concat([normed_train, normed_target])
 
 normed = normed.rename(columns=metabolite_dict)
 
-normed.to_csv("normed.tsv", index=False, sep="\t")
+normed.to_csv(sys.argv[2], index=False, sep="\t")
