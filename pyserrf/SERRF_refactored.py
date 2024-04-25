@@ -24,13 +24,11 @@ import sys
 
 
 minus = False
-#merged = read_serff_format_data_simple("test_data/SERRF example dataset.xlsx")
+merged = read_serff_format_data_simple("test_data/SERRF example dataset.xlsx")
 
 random_seed=42
 rng = np.random.default_rng(seed=random_seed)
 np.random.seed(random_seed)
-
-merged = read_serff_format_data_simple(sys.argv[1])
 
 sample_metadata_columns = ["batch", "sampleType", "time", "label"]
 
@@ -47,11 +45,16 @@ metabolites = list(data.columns)
 
 merged = pd.concat([sample_metadata, data], axis=1)
 
-merged_original=merged.copy()
 
 merged = handle_zero_and_nan(merged, metabolites)
 
 corrs_train, corrs_target = get_corrs_by_sample_type_and_batch(merged, metabolites)
+
+normalized=normalize_metabolite(merged, 'MET_1')
+
+
+
+
 
 
 pred = []

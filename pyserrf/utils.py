@@ -1,65 +1,66 @@
 import pandas as pd
 import numpy as np
 
-
-def replace_zero_values(row: pd.Series, random_seed: int = 42) -> pd.Series:
+def replace_zero_values(values: np.array, random_seed: int = 42) -> pd.Series:
     """
     Replace zero values in a pandas series with a normally distributed
     random variable. The normal distribution has a mean of the minimum non-NaN value
-    in the row plus 1, and a standard deviation of 10% of the minimum non-NaN value.
+    in the values plus 1, and a standard deviation of 10% of the minimum non-NaN value.
 
     Parameters
     ----------
-    row : pandas.Series
-        A pandas series
+    values : np.array
+        A numpy array
 
     Returns
     -------
-    pandas.Series
-        The input series with zero values replaced by normally distributed random
+    np.array
+        The input array with zero values replaced by normally distributed random
         variables
     """
+
     rng = np.random.default_rng(seed=random_seed)
-    zero_values = row[row == 0].index  # Indices of zero values
+    np.random.seed(random_seed)
+    # zero_values = row[row == 0].index  # Indices of zero values
+    zero_values = np.where(row == 0)[0]
     if len(zero_values) == 0:
         return row
-    min_non_nan = row.dropna().min()  # Minimum non-NaN value in the row
-    mean = min_non_nan + 1  # Mean of the normal distribution
-    std = 0.1 * (min_non_nan + 0.1)  # Standard deviation of the normal distribution
+    min_val = np.nanmin(row)  # Minimum non-NaN value in the row=
+    mean = min_val + 1  # Mean of the normal distribution
+    std = 0.1 * (min_val + 0.1)  # Standard deviation of the normal distribution
     zero_replacements = rng.normal(
         loc=mean,
         scale=std,
         size=len(zero_values),
     )
-    row.loc[zero_values] = zero_replacements
+    row[zero_values] = zero_replacements
     return row
 
 
-def replace_nan_values(row, random_seed: int = 42) -> pd.Series:
+def replace_nan_values(values, random_seed: int = 42) -> pd.Series:
     """
-    Replace NaN values in a row of a pandas DataFrame with normally distributed
+    Replace NaN values in a values of a numpy array with normally distributed
     random variables. The normal distribution has a mean of half the minimum
-    non-NaN value in the row plus one, and a standard deviation of 10% of the
+    non-NaN value in the values plus one, and a standard deviation of 10% of the
     minimum non-NaN value.
 
     Parameters
     ----------
-    row : pandas.Series
-        A row of a pandas DataFrame
+    values : np.array
+        A numpy array
 
     Returns
     -------
-    pandas.Series
-        The input row with NaN values replaced by normally distributed random
+    np.array
+        The input values with NaN values replaced by normally distributed random
         variables
     """
     rng = np.random.default_rng(seed=random_seed)
-    nan_values = row[row.isna()]  # Indices of NaN values
+    np.random.seed(random_seed)
+    nan_values = np.where(np.isnan(values))  # Indices of NaN values
     if len(nan_values) == 0:
-        return row
-    print(len(nan_values))
-    non_nan_values = row.dropna()  # Non-NaN values in the row
-    min_non_nan = np.min(non_nan_values)  # Minimum non-NaN value in the row
+        return values
+    min_non_nan = np.nanmin(values)  # Minimum non-NaN value in the values
     mean = 0.5 * (min_non_nan + 1)  # Mean of the normal distribution
     std = 0.1 * (min_non_nan + 0.1)  # Standard deviation of the normal distribution
     nan_replacements = rng.normal(
@@ -67,8 +68,8 @@ def replace_nan_values(row, random_seed: int = 42) -> pd.Series:
         scale=std,
         size=len(nan_values),
     )  # Random variables
-    row.loc[nan_values.index] = nan_replacements  # Replace NaN values
-    return row  # Return the row with replaced NaN values
+    values[nan_values] = nan_replacements  # Replace NaN values
+    return values  # Return the row with replaced NaN values
 
 
 def check_for_nan_or_zero(data):
@@ -146,7 +147,6 @@ def get_top_metabolites_in_both_correlations(series1, series2, num):
             set(series1[0:l].index).intersection(set(series2[0:l].index))
         )
         l += 1
-        # print(len(selected))
     return selected
 
 
