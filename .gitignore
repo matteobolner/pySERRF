@@ -5,3 +5,4 @@ pyserrf/__pycache__/
 pyserrf/info.txt
 normed.tsv
 pyserrf/test.py
+class_results.tsv
