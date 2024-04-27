@@ -1,54 +1,301 @@
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.ensemble import RandomForestRegressor
-
+from sklearn.utils.validation import check_is_fitted
 import pandas as pd
 import numpy as np
 
-# train, target, num, batch, time, sampletype, minus
+# qc, target, num, batch, time, sampletype, minus
 
 
 class SERRF(BaseEstimator, TransformerMixin):
-    def __init__(self, random_state, sample_metadata_columns=["batch", "sampleType"]):
-        self.random_state = random_state
+    """
+    This class implements the SERRF (Systematical Error Removal using Random Forest) method,
+    which is a qc-based sample normalization method designed for large-scale
+    untargeted metabolomics data.
+    data. The method was developed by the Fan et al. in 2015 [1]_
+    (see https://slfan2013.github.io/SERRF-online/).
+
+    The class takes as input a pandas DataFrame containing metabolomic data and
+    sample metadata, and outputs a pandas DataFrame with the normalized data.
+
+    The class has the following parameters:
+
+    - `sample_type_column` is the name of the column in the sample metadata
+      with the sample type information (i.e qc or normal sample). The default
+      value is 'SampleType'.
+    - `batch_column` is the name of the column in the sample metadata with the
+      batch information. If `None`, all samples are considered as part the same
+      batch. The default value is `None`.
+    - `sample_metadata_columns` is a list with the names of the columns in the
+      sample metadata; it is important to specify all the metadata columns to
+      separate them from the metabolite abundance values.
+      The default value is ['SampleType', 'batch', 'label', 'time'].
+    - `random_state` is the random seed used for all methods with a random
+      component (i.e numpy normal distribution, sklearn random forest regressor).
+      The default value is `None`, which means that a random seed is
+      generated automatically. To obtain reproducible results, set a specific
+      random seed.
+    - `minus` is a boolean indicating, if True, that the normalization will be
+        done by subtracting the predicted value; otherwise the normalization is
+        done by dividing the predicted value. Default value is False.
+
+    - `n_correlated_metabolites` is the number of metabolites with the highest
+        correlation to the metabolite to be normalized. The default value is 10.
+
+    Attributes:
+    -----------
+    _metabolites : list
+        List with the names of the metabolites.
+    _dataset : pandas DataFrame
+        DataFrame with the metabolomic data and the sample metadata.
+    _metabolite_dict : dict
+        Dictionary with the mapping between the original column names and the
+        new column names (MET_1, MET_2, etc.).
+    corrs_qc : pandas DataFrame
+        DataFrame with the Pearson correlation coefficients between the
+        metabolites and the batch information.
+    corrs_target : pandas DataFrame
+        DataFrame with the Pearson correlation coefficients between the
+        metabolites and the samples.
+    normalized_data_ : pandas DataFrame
+        DataFrame with the normalized data.
+    normalized_dataset_ : pandas DataFrame
+        DataFrame with the normalized data and the sample metadata.
+
+    References
+    ----------
+    .. [1] Fan et al.:
+        Systematic Error Removal using Random Forest (SERRF) for Normalizing
+        Large-Scale Untargeted Lipidomics Data
+        Analytical Chemistry DOI: 10.1021/acs.analchem.8b05592
+        https://slfan2013.github.io/SERRF-online/
+    """
+
+    def __init__(
+        self,
+        sample_type_column="SampleType",
+        batch_column=None,
+        sample_metadata_columns=["SampleType", "batch", "label", "time"],
+        random_state=None,
+        minus=False,
+        n_correlated_metabolites=10,
+    ):
+        """
+        Initialize the class.
+
+        Parameters
+        ----------
+        sample_type_column : str, optional
+            The name of the column in the sample metadata with the sample type
+            information (i.e qc or normal sample). The default value is
+            'SampleType'.
+        batch_column : str or None, optional
+            The name of the column in the sample metadata with the batch
+            information. If None, all samples are considered as part the same
+            batch. The default value is None.
+        sample_metadata_columns : list of str, optional
+            A list with the names of the columns in the sample metadata; it is
+            important to specify all the metadata columns to separate them from
+            the metabolite abundance values. The default value is
+            ['SampleType', 'batch', 'label', 'time'].
+        random_state : int, RandomState instance, or None, optional
+            The random seed used for all methods with a random component (i.e
+            numpy normal distribution, sklearn random forest regressor). The
+            default value is None, which means that a random seed is generated
+            automatically. To obtain reproducible results, set a specific random
+            seed.
+        minus : bool, optional
+            A boolean indicating, if True, that the normalization will be done
+            by subtracting the predicted value; otherwise the normalization is
+            done by dividing the predicted value. The default value is False.
+        n_correlated_metabolites : int, optional
+            The number of metabolites with the highest correlation to the
+            metabolite to be normalized. The default value is 10.
+
+        Attributes
+        ----------
+        sample_metadata_columns : list of str
+            The list of columns in the sample metadata.
+        sample_type_column : str
+            The name of the column in the sample metadata with the sample type
+            information.
+        batch_column : str or None
+            The name of the column in the sample metadata with the batch
+            information.
+        random_state : int, RandomState instance, or None
+            The random seed used for all methods with a random component.
+        minus : bool
+            Boolean indicating if the normalization is done by subtracting the
+            predicted value or dividing by it.
+        n_correlated_metabolites : int
+            The number of metabolites with the highest correlation to the
+            metabolite to be normalized.
+        _metabolites : list of str
+            List with the names of the metabolites.
+        _dataset : pandas DataFrame
+            DataFrame with the metabolomic data and the sample metadata.
+        _metabolite_dict : dict
+            Dictionary with the mapping between the original column names and
+            the new column names (MET_1, MET_2, etc.).
+        _sample_metadata : pandas DataFrame containing the sample metadata.
+        corrs_qc : pandas DataFrame
+            DataFrame with the Pearson correlation coefficients between the
+            metabolites and the batch information.
+        corrs_target : pandas DataFrame
+            DataFrame with the Pearson correlation coefficients between the
+            metabolites and the samples.
+        normalized_data_ : pandas DataFrame
+            DataFrame with the normalized data.
+        normalized_dataset_ : pandas DataFrame
+            DataFrame with the normalized data and the sample metadata.
+        """
+        # attributes for the preprocessing
         self.sample_metadata_columns = sample_metadata_columns
+        self.sample_type_column = sample_type_column
+        self.batch_column = batch_column
+        # attributes for the analysis
+        self.random_state = random_state
+        self.minus = minus
+        self.n_correlated_metabolites = n_correlated_metabolites
+        # internal class attributes obtained from preprocessing
+        self._metabolites = None
+        self._dataset = None
+        self._metabolite_dict = None
+        self._sample_metadata = None
+        self._corrs_qc = None
+        self._corrs_target = None
+        self.normalized_data_ = None
+        self.normalized_dataset_ = None
 
-    def _preprocess_data(self, merged):
-        sample_metadata = merged[self.sample_metadata_columns]
-        data = merged.drop(columns=self.sample_metadata_columns)
+    def fit(self, X):
+        """
+        Fit the transformer on the data X and returns self.
+
+        Parameters
+        ----------
+        X : pandas DataFrame of shape (n_samples, n_features)
+            The input dataset.
+
+        Returns
+        -------
+        self
+
+        """
+
+        return self._fit(X)
+
+    def transform(self, X, return_data_only=False):
+        """
+        Apply the SERRF normalization to the data X.
+
+        Parameters
+        ----------
+        X : pandas DataFrame of shape (n_samples, n_features)
+            The input data.
+
+        Returns
+        -------
+        X_transformed : pandas DataFrame of shape (n_samples, n_features)
+            The transformed data.
+
+        """
+        check_is_fitted(self, "n_features_")
+
+        return self._transform(X, return_data_only=return_data_only)
+
+    def fit_transform(self, X, return_data_only=False):
+        """
+        Fit the transformer on the data X and returns the transformed data.
+
+        Parameters
+        ----------
+        X : pandas DataFrame of shape (n_samples, n_features)
+            The input dataset.
+        y : None
+            There is no need of a target in a transformer, yet the pipeline API
+            requires this parameter.
+        return_data_only : bool, default=False
+            If True, the transformed data is returned, else the transformed
+            dataset with the sample metadata is returned.
+
+        Returns
+        -------
+        X_transformed : pandas DataFrame of shape (n_samples, n_features)
+            The transformed data.
+
+        """
+        self._fit(X)
+        return self._transform(X, return_data_only=return_data_only)
+
+    def _fit(self, dataset):
+        if self.batch_column is None:
+            # Add a batch column if it is not already present
+            dataset["batch"] = 1
+            self.sample_metadata_columns.append("batch")
+
+        self._sample_metadata = dataset[self.sample_metadata_columns]
+        data = dataset.drop(columns=self.sample_metadata_columns)
         data = data.astype(float)
-        newcolumns = [f"MET_{i}" for i in range(1, len(data.columns) + 1)]
-        self._metabolite_dict = {i: j for i, j in zip(newcolumns, data.columns)}
-        data.columns = newcolumns
-        self._metabolites = list(data.columns)
-        self._merged = pd.concat([sample_metadata, data], axis=1)
 
-    def _fit(self, merged, minus):
-        self._preprocess_data(merged)
-        corrs_train, corrs_target = self._get_corrs_by_sample_type_and_batch(
-            self._merged, self._metabolites
+        # Create new column names with prefix 'MET_'
+        newcolumns = [f"MET_{i}" for i in range(1, len(data.columns) + 1)]
+
+        # Store the mapping between the new and old column names
+        self._metabolite_dict = dict(zip(newcolumns, data.columns))
+
+        # Rename the columns
+        data.columns = newcolumns
+
+        # Store the list of metabolite names
+        self._metabolites = list(data.columns)
+        self.n_features_ = len(self._metabolites)
+        # Concatenate the metadata and data to form the preprocessed dataset
+        self._dataset = pd.concat([self._sample_metadata, data], axis=1)
+
+        self._corrs_qc, self._corrs_target = self._get_corrs_by_sample_type_and_batch(
+            self._dataset, self._metabolites
         )
 
+    def _transform(self, X, return_data_only):
+        """
+        Apply the transformation on the data X.
+
+        Parameters
+        ----------
+        X : pandas DataFrame of shape (n_samples, n_features)
+            The input dataset.
+        return_data_only : bool, default=False
+            If True, the transformed data is returned, else the transformed
+            dataset with the sample metadata is returned.
+
+        Returns
+        -------
+        X_transformed : pandas DataFrame of shape (n_samples, n_features) or
+            pandas DataFrame of shape (n_samples, n_features + n_sample_metadata_columns)
+            The transformed data or the transformed dataset with the sample
+            metadata.
+
+        """
+        counter = 0
         normalized = []
         for metabolite in self._metabolites:
-            print(metabolite)
+            counter += 1
+            print(f"{counter}/{len(self._metabolites)}")
             normalized.append(
                 self._normalize_metabolite(
-                    self._merged,
+                    self._dataset,
                     metabolite,
-                    minus,
-                    corrs_target=corrs_target,
-                    corrs_train=corrs_train,
+                    self.minus,
                 )
             )
-        return normalized
-
-    def fit(self, X, y):
-        return self
-
-    def transform(self, X):
-        return X
-
-    def fit_transform(self, X, y):
+        self.normalized_data_ = pd.concat(normalized, axis=1)
+        self.normalized_dataset_ = pd.concat(
+            [self._sample_metadata, self.normalized_data_], axis=1
+        )
+        if return_data_only:
+            X = self.normalized_data_
+        else:
+            X = self.normalized_dataset_
         return X
 
     def _replace_zero_values(
@@ -126,8 +373,7 @@ class SERRF(BaseEstimator, TransformerMixin):
     def _check_for_nan_or_zero(self, data):
         if (0 not in data.values) & (~data.isna().any().any()):
             return False
-        else:
-            return True
+        return True
 
     def _handle_zero_and_nan(self, merged, metabolites):
         if self._check_for_nan_or_zero(merged[metabolites]):
@@ -172,15 +418,13 @@ class SERRF(BaseEstimator, TransformerMixin):
         return scaled
 
     def _get_corrs_by_sample_type_and_batch(self, merged, metabolites):
-        corrs_train = {}
+        corrs_qc = {}
         corrs_target = {}
 
         for batch, group in merged.groupby(by="batch"):
-            batch_training = group[group["sampleType"] == "qc"]
-            batch_training_scaled = batch_training[metabolites].apply(
-                self._standard_scaler
-            )
-            corrs_train[batch] = batch_training_scaled.corr(method="spearman")
+            batch_qc = group[group["sampleType"] == "qc"]
+            batch_qc_scaled = batch_qc[metabolites].apply(self._standard_scaler)
+            corrs_qc[batch] = batch_qc_scaled.corr(method="spearman")
             batch_target = group[group["sampleType"] != "qc"]
             if len(batch_target) == 0:
                 corrs_target[batch] = np.nan
@@ -189,7 +433,7 @@ class SERRF(BaseEstimator, TransformerMixin):
                     self._standard_scaler
                 )
                 corrs_target[batch] = batch_target_scaled.corr(method="spearman")
-        return corrs_train, corrs_target
+        return corrs_qc, corrs_target
 
     def _get_top_metabolites_in_both_correlations(self, series1, series2, num):
         selected = set()
@@ -279,20 +523,19 @@ class SERRF(BaseEstimator, TransformerMixin):
         data = group[list(top_correlated)]
         if data.empty:
             return pd.DataFrame()
-        else:
-            return data.apply(self._standard_scaler)
+        return data.apply(self._standard_scaler)
 
-    def _get_factor(self, training_group, test_group, metabolite):
+    def _get_factor(self, qc_group, test_group, metabolite):
         """
         Calculates the factor used to normalize the test data for a single metabolite.
 
         The factor is calculated as the ratio of the standard deviation of the
-        training data to the standard deviation of the test data.
+        qc data to the standard deviation of the test data.
 
         Parameters
         ----------
-        training_group : pandas DataFrame
-            The training data for a single batch.
+        qc_group : pandas DataFrame
+            The qc data for a single batch.
         test_group : pandas DataFrame
             The test data for a single batch.
         metabolite : str
@@ -303,96 +546,96 @@ class SERRF(BaseEstimator, TransformerMixin):
         float
             The normalization factor for the given metabolite.
         """
-        factor = np.std(training_group[metabolite], ddof=1) / np.std(
+        factor = np.std(qc_group[metabolite], ddof=1) / np.std(
             test_group[metabolite], ddof=1
         )
         return factor
 
-    def _get_training_data_y(self, training_group, test_group, metabolite):
+    def _get_qc_data_y(self, qc_group, test_group, metabolite):
         """
-        Calculates the training data y values for the SERRF regression.
+        Calculates the qc data y values for the SERRF regression.
 
-        The training data y values are calculated as the difference between
-        the training group mean and the actual values, divided by the factor.
+        The qc data y values are calculated as the difference between
+        the qc group mean and the actual values, divided by the factor.
         If the factor is smaller than 1 or zero, the center_data function is used
         instead.
 
         Parameters
         ----------
-        training_group : pandas DataFrame
-            The training data for a single batch.
+        qc_group : pandas DataFrame
+            The qc data for a single batch.
         test_group : pandas DataFrame
             The test data for a single batch.
         metabolite : str
-            The name of the metabolite for which the training data y values
+            The name of the metabolite for which the qc data y values
             are desired.
 
         Returns
         -------
         pandas Series
-            The training data y values for the given metabolite in the given batch.
+            The qc data y values for the given metabolite in the given batch.
         """
-        factor = self._get_factor(training_group, test_group, metabolite)
+        factor = self._get_factor(qc_group, test_group, metabolite)
         # If the factor is smaller than 1 or zero, use center_data function instead
         if (factor == 0) | (factor == np.nan) | (factor < 1):
-            training_data_y = self._center_data(training_group[metabolite])
+            qc_data_y = self._center_data(qc_group[metabolite])
         else:
-            # If there are more training data points than in test data,
-            # use the training data mean as a proxy for the test data mean
-            if len(training_group[metabolite]) * 2 > len(test_group[metabolite]):
-                training_data_y = (
-                    training_group[metabolite] - training_group[metabolite].mean()
+            # If there are more qc data points than in test data,
+            # use the qc data mean as a proxy for the test data mean
+            if len(qc_group[metabolite]) * 2 > len(test_group[metabolite]):
+                qc_data_y = (
+                    qc_group[metabolite] - qc_group[metabolite].mean()
                 ) / factor
             else:
-                training_data_y = self._center_data(training_group[metabolite])
-        return training_data_y
+                qc_data_y = self._center_data(qc_group[metabolite])
+        return qc_data_y
 
-    def _predict_values(self, training_data_x, training_data_y, test_data_x):
+    def _predict_values(self, qc_data_x, qc_data_y, test_data_x):
         """
         Predicts the values of the test data using a random forest regressor.
 
-        The training data is used to build a random forest regressor, which is then
+        The qc data is used to build a random forest regressor, which is then
         used to predict the values of the test data. The predicted values are returned
-        as a tuple with the training prediction and the test prediction.
+        as a tuple with the qc prediction and the test prediction.
 
         Parameters
         ----------
-        training_data_x : pandas DataFrame
-            The training data features.
-        training_data_y : pandas Series
-            The training data targets.
+        qc_data_x : pandas DataFrame
+            The qc data features.
+        qc_data_y : pandas Series
+            The qc data targets.
         test_data_x : pandas DataFrame
             The test data features.
 
         Returns
         -------
         tuple
-            A tuple containing the training prediction and the test prediction.
+            A tuple containing the qc prediction and the test prediction.
         """
         model = RandomForestRegressor(
             n_estimators=500, min_samples_leaf=5, random_state=self.random_state
         )
-        model.fit(X=training_data_x, y=training_data_y, sample_weight=None)
-        training_prediction = model.predict(training_data_x)
+        model.fit(X=qc_data_x, y=qc_data_y, sample_weight=None)
+        qc_prediction = model.predict(qc_data_x)
         test_prediction = model.predict(test_data_x)
 
-        return training_prediction, test_prediction
+        return qc_prediction, test_prediction
 
-    def _normalize_training_and_test(
+    def _normalize_qc_and_test(
         self,
         minus,
         metabolite,
         merged,
-        training_group,
-        training_prediction,
+        qc_group,
+        qc_prediction,
         test_group,
         test_prediction,
     ):
         """
-        Normalizes the training and test data using the same formula.
+        Normalizes the qc and test data using the same formula.
 
-        The normalization is based on the mean of the QC data and the median of the
-        non-QC data. The normalization is done separately on the training and test
+        The normalization is based on the mean of the qc data and the median of the
+        non-qc data. The normalization is done separately on the qc and test
         data.
 
         Parameters
@@ -404,10 +647,10 @@ class SERRF(BaseEstimator, TransformerMixin):
             The name of the metabolite to normalize.
         merged : pandas DataFrame
             The merged data frame containing the data to normalize.
-        training_group : pandas DataFrame
-            The training data group.
-        training_prediction : pandas Series
-            The predicted values for the training data.
+        qc_group : pandas DataFrame
+            The qc data group.
+        qc_prediction : pandas Series
+            The predicted values for the qc data.
         test_group : pandas DataFrame
             The test data group.
         test_prediction : pandas Series
@@ -415,14 +658,14 @@ class SERRF(BaseEstimator, TransformerMixin):
 
         Returns
         -------
-        norm_training : pandas Series
-            The normalized training data.
+        norm_qc : pandas Series
+            The normalized qc data.
         norm_test : pandas Series
             The normalized test data.
         """
         if minus:
-            norm_training = training_group[metabolite] - (
-                (training_prediction + training_group[metabolite].mean())
+            norm_qc = qc_group[metabolite] - (
+                (qc_prediction + qc_group[metabolite].mean())
                 - merged[merged["sampleType"] == "qc"][metabolite].mean()
             )
             norm_test = test_group[metabolite] - (
@@ -430,8 +673,8 @@ class SERRF(BaseEstimator, TransformerMixin):
                 - merged[merged["sampleType"] != "qc"][metabolite].median()
             )
         else:
-            norm_training = training_group[metabolite] / (
-                (training_prediction + training_group[metabolite].mean())
+            norm_qc = qc_group[metabolite] / (
+                (qc_prediction + qc_group[metabolite].mean())
                 / merged[merged["sampleType"] == "qc"][metabolite].mean()
             )
             norm_test = test_group[metabolite] / (
@@ -448,33 +691,32 @@ class SERRF(BaseEstimator, TransformerMixin):
             norm_test[norm_test < 0].index
         ]
 
-        # Normalize the median of the training and test data to the median of the QC data
-        norm_training = norm_training / (
-            norm_training.median()
-            / merged[merged["sampleType"] == "qc"][metabolite].median()
+        # Normalize the median of the qc and test data to the median of the qc data
+        norm_qc = norm_qc / (
+            norm_qc.median() / merged[merged["sampleType"] == "qc"][metabolite].median()
         )
         norm_test = norm_test / (
             norm_test.median()
             / merged[merged["sampleType"] != "qc"][metabolite].median()
         )
 
-        return norm_training, norm_test
+        return norm_qc, norm_test
 
     def _merge_and_normalize(
-        self, metabolite, norm_training, norm_test, test_group, test_prediction
+        self, metabolite, norm_qc, norm_test, test_group, test_prediction
     ):
         """
-        Merges the training and test data and normalizes the data using the same
-        formula as normalize_training_and_test.
+        Merges the qc and test data and normalizes the data using the same
+        formula as normalize_qc_and_test.
 
-        The normalization is done separately on the training and test data.
+        The normalization is done separately on the qc and test data.
 
         Parameters
         ----------
         metabolite : str
             The name of the metabolite to normalize.
-        norm_training : pandas Series
-            The normalized training data.
+        norm_qc : pandas Series
+            The normalized qc data.
         norm_test : pandas Series
             The normalized test data.
         test_group : pandas DataFrame
@@ -487,9 +729,11 @@ class SERRF(BaseEstimator, TransformerMixin):
         norm : pandas Series
             The normalized data.
         """
-        norm = pd.concat([norm_training, norm_test]).sort_index()
+        norm = pd.concat([norm_qc, norm_test]).sort_index()
 
-        ##NOT SURE ABOUT LINE BELOW, WORKS AS INTENDED BUT VALUES GENERATED ARE VERY LOW (CENTERED ON ZERO); MIGHT BENEFIT FROM NORM MEAN AS CENTER
+        ##NOT SURE ABOUT LINE BELOW, WORKS AS INTENDED BUT
+        # VALUES GENERATED ARE VERY LOW (CENTERED ON ZERO);
+        # ANYWAYS, i dont know why infinite data would be generated
         # norm[~np.isfinite(norm)] = rng.normal(
         #    scale=np.std(norm[np.isfinite(norm)], ddof=1) * 0.01,
         #    size=len(norm[~np.isfinite(norm)]),
@@ -507,7 +751,7 @@ class SERRF(BaseEstimator, TransformerMixin):
             - (
                 (test_prediction + test_group[metabolite].mean())
                 - (
-                    self._merged[self._merged["sampleType"] != "qc"][
+                    self._dataset[self._dataset["sampleType"] != "qc"][
                         metabolite
                     ].median()
                 )
@@ -528,18 +772,18 @@ class SERRF(BaseEstimator, TransformerMixin):
                 metabolite
             ]
 
-        norm = pd.concat([norm_training, norm_test]).sort_index()
+        norm = pd.concat([norm_qc, norm_test]).sort_index()
         return norm
 
     def _adjust_normalized_values(self, metabolite, merged, normalized):
         """
         Adjusts the normalized values for the given metabolite using the median of
-        the normalized values for the non-QC data and the QC data.
+        the normalized values for the non-qc data and the qc data.
 
-        The adjustment is done by multiplying the normalized values for the QC
+        The adjustment is done by multiplying the normalized values for the qc
         data by a factor, which is calculated from the standard deviation of the
-        normalized values for the non-QC data and the median of the normalized
-        values for the QC data.
+        normalized values for the non-qc data and the median of the normalized
+        values for the qc data.
 
         The factor is calculated as follows:
             c = (
@@ -550,7 +794,7 @@ class SERRF(BaseEstimator, TransformerMixin):
                 * normalized_stddev_non_qc_data
             ) / qc_data_median
 
-        If c > 0, the normalized values for the QC data are multiplied by c.
+        If c > 0, the normalized values for the qc data are multiplied by c.
 
         Parameters
         ----------
@@ -581,11 +825,9 @@ class SERRF(BaseEstimator, TransformerMixin):
             )
         return normalized
 
-    def _normalize_metabolite(
-        self, merged, metabolite, minus, corrs_train, corrs_target
-    ):
+    def _normalize_metabolite(self, merged, metabolite, minus):
         """
-        Normalizes the given metabolite by predicting its values using the training data and
+        Normalizes the given metabolite by predicting its values using the qc data and
         the other metabolites that are correlated with it.
 
         Parameters
@@ -602,52 +844,50 @@ class SERRF(BaseEstimator, TransformerMixin):
         """
         normalized = []
         for batch, group in merged.groupby(by="batch"):
-            # Get the groups for the training and test data
-            training_group = group[group["sampleType"] == "qc"]
+            # Get the groups for the qc and test data
+            qc_group = group[group["sampleType"] == "qc"]
             test_group = group[group["sampleType"] != "qc"]
 
-            # Get the order of correlation for the training and target data
-            corr_train_order = self._get_sorted_correlation(
-                corrs_train[batch], metabolite
+            # Get the order of correlation for the qc and target data
+            corr_qc_order = self._get_sorted_correlation(
+                self._corrs_qc[batch], metabolite
             )
             corr_target_order = self._get_sorted_correlation(
-                corrs_target[batch], metabolite
+                self._corrs_target[batch], metabolite
             )
 
             # Get the top correlated metabolites from both data sets
             top_correlated = self._get_top_metabolites_in_both_correlations(
-                corr_train_order, corr_target_order, 10
+                corr_qc_order, corr_target_order, 10
             )
 
             # Scale the data
-            training_data_x = self._scale_data(training_group, top_correlated)
+            qc_data_x = self._scale_data(qc_group, top_correlated)
             test_data_x = self._scale_data(test_group, top_correlated)
 
-            # Get the target values for the training data
-            training_data_y = self._get_training_data_y(
-                training_group, test_group, metabolite
-            )
+            # Get the target values for the qc data
+            qc_data_y = self._get_qc_data_y(qc_group, test_group, metabolite)
 
             # If there is no correlation data, just return the original data
-            if training_data_x.empty:
+            if qc_data_x.empty:
                 norm = group[metabolite]
 
             # Otherwise, predict and normalize the data
             else:
-                training_prediction, test_prediction = self._predict_values(
-                    training_data_x, training_data_y, test_data_x
+                qc_prediction, test_prediction = self._predict_values(
+                    qc_data_x, qc_data_y, test_data_x
                 )
-                norm_training, norm_test = self._normalize_training_and_test(
+                norm_qc, norm_test = self._normalize_qc_and_test(
                     minus,
                     metabolite,
                     merged,
-                    training_group,
-                    training_prediction,
+                    qc_group,
+                    qc_prediction,
                     test_group,
                     test_prediction,
                 )
                 norm = self._merge_and_normalize(
-                    metabolite, norm_training, norm_test, test_group, test_prediction
+                    metabolite, norm_qc, norm_test, test_group, test_prediction
                 )
 
             normalized.append(norm)
