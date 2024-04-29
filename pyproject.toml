@@ -6,7 +6,7 @@ authors = ["matteobolner <matteo.bolner2@unibo.it>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.12"
+python = "^3.10"
 numpy = "^1.26.4"
 pandas = "^2.2.2"
 scikit-learn = "^1.4.2"
