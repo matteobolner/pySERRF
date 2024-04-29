@@ -1,4 +1,5 @@
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.utils.validation import check_is_fitted
 import pandas as pd
@@ -394,11 +395,11 @@ class SERRF(BaseEstimator, TransformerMixin):
         return merged
 
     def _center_data(self, data: np.ndarray) -> np.ndarray:
-        mean = data.mean()
+        mean = np.nanmean(data)
         centered = data - mean
         return centered
 
-    def _standard_scaler(self, data: np.ndarray) -> np.ndarray:
+    def _standard_scaler(self, data: pd.DataFrame) -> pd.DataFrame:
         """
         Standardize data by subtracting the mean and dividing by the standard deviation.
 
@@ -412,9 +413,11 @@ class SERRF(BaseEstimator, TransformerMixin):
         array-like
             The standardized data.
         """
-        centered = self._center_data(data)
-        std = data.std(ddof=1)
-        scaled = centered / std
+        scaler = StandardScaler()
+        scaler.fit(data)
+        scaler.scale_ = np.std(data, axis=0, ddof=1).replace(0, 1).to_list()
+        scaled = scaler.transform(data)
+        scaled = pd.DataFrame(scaled, columns=data.columns, index=data.index)
         return scaled
 
     def _get_corrs_by_sample_type_and_batch(self, merged, metabolites):
@@ -423,15 +426,14 @@ class SERRF(BaseEstimator, TransformerMixin):
 
         for batch, group in merged.groupby(by="batch"):
             batch_qc = group[group["sampleType"] == "qc"]
-            batch_qc_scaled = batch_qc[metabolites].apply(self._standard_scaler)
+            batch_qc_scaled = self._standard_scaler(batch_qc[metabolites])
+
             corrs_qc[batch] = batch_qc_scaled.corr(method="spearman")
             batch_target = group[group["sampleType"] != "qc"]
             if len(batch_target) == 0:
                 corrs_target[batch] = np.nan
             else:
-                batch_target_scaled = batch_target[metabolites].apply(
-                    self._standard_scaler
-                )
+                batch_target_scaled = self._standard_scaler(batch_target[metabolites])
                 corrs_target[batch] = batch_target_scaled.corr(method="spearman")
         return corrs_qc, corrs_target
 
@@ -523,7 +525,7 @@ class SERRF(BaseEstimator, TransformerMixin):
         data = group[list(top_correlated)]
         if data.empty:
             return pd.DataFrame()
-        return data.apply(self._standard_scaler)
+        return self._standard_scaler(data)
 
     def _get_factor(self, qc_group, test_group, metabolite):
         """
@@ -618,7 +620,6 @@ class SERRF(BaseEstimator, TransformerMixin):
         model.fit(X=qc_data_x, y=qc_data_y, sample_weight=None)
         qc_prediction = model.predict(qc_data_x)
         test_prediction = model.predict(test_data_x)
-
         return qc_prediction, test_prediction
 
     def _normalize_qc_and_test(
@@ -860,14 +861,16 @@ class SERRF(BaseEstimator, TransformerMixin):
             top_correlated = self._get_top_metabolites_in_both_correlations(
                 corr_qc_order, corr_target_order, 10
             )
+            # this is to avoid different order of same 10 metabolites
+            # which in turn gives different RF results
 
+            top_correlated = list(top_correlated)
+            top_correlated.sort()
             # Scale the data
             qc_data_x = self._scale_data(qc_group, top_correlated)
             test_data_x = self._scale_data(test_group, top_correlated)
-
             # Get the target values for the qc data
             qc_data_y = self._get_qc_data_y(qc_group, test_group, metabolite)
-
             # If there is no correlation data, just return the original data
             if qc_data_x.empty:
                 norm = group[metabolite]
@@ -893,7 +896,6 @@ class SERRF(BaseEstimator, TransformerMixin):
             normalized.append(norm)
 
         normalized = pd.concat(normalized)
-
         # Adjust the normalized values
         normalized = self._adjust_normalized_values(metabolite, merged, normalized)
         return normalized
