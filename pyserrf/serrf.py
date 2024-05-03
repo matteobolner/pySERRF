@@ -5,8 +5,6 @@ from sklearn.utils.validation import check_is_fitted
 import pandas as pd
 import numpy as np
 
-# qc, target, num, batch, time, sampletype, minus
-
 
 class SERRF(BaseEstimator, TransformerMixin):
     """
@@ -36,9 +34,6 @@ class SERRF(BaseEstimator, TransformerMixin):
       The default value is `None`, which means that a random seed is
       generated automatically. To obtain reproducible results, set a specific
       random seed.
-    - `minus` is a boolean indicating, if True, that the normalization will be
-        done by subtracting the predicted value; otherwise the normalization is
-        done by dividing the predicted value. Default value is False.
 
     - `n_correlated_metabolites` is the number of metabolites with the highest
         correlation to the metabolite to be normalized. The default value is 10.
@@ -78,7 +73,6 @@ class SERRF(BaseEstimator, TransformerMixin):
         batch_column=None,
         sample_metadata_columns=["SampleType", "batch", "label", "time"],
         random_state=None,
-        minus=False,
         n_correlated_metabolites=10,
     ):
         """
@@ -105,10 +99,6 @@ class SERRF(BaseEstimator, TransformerMixin):
             default value is None, which means that a random seed is generated
             automatically. To obtain reproducible results, set a specific random
             seed.
-        minus : bool, optional
-            A boolean indicating, if True, that the normalization will be done
-            by subtracting the predicted value; otherwise the normalization is
-            done by dividing the predicted value. The default value is False.
         n_correlated_metabolites : int, optional
             The number of metabolites with the highest correlation to the
             metabolite to be normalized. The default value is 10.
@@ -125,9 +115,6 @@ class SERRF(BaseEstimator, TransformerMixin):
             information.
         random_state : int, RandomState instance, or None
             The random seed used for all methods with a random component.
-        minus : bool
-            Boolean indicating if the normalization is done by subtracting the
-            predicted value or dividing by it.
         n_correlated_metabolites : int
             The number of metabolites with the highest correlation to the
             metabolite to be normalized.
@@ -156,7 +143,6 @@ class SERRF(BaseEstimator, TransformerMixin):
         self.batch_column = batch_column
         # attributes for the analysis
         self.random_state = random_state
-        self.minus = minus
         self.n_correlated_metabolites = n_correlated_metabolites
         # internal class attributes obtained from preprocessing
         self._metabolites = None
@@ -286,7 +272,6 @@ class SERRF(BaseEstimator, TransformerMixin):
                 self._normalize_metabolite(
                     self._dataset,
                     metabolite,
-                    self.minus,
                 )
             )
         self.normalized_data_ = pd.concat(normalized, axis=1)
@@ -554,6 +539,7 @@ class SERRF(BaseEstimator, TransformerMixin):
         return factor
 
     def _get_qc_data_y(self, qc_group, test_group, metabolite):
+        # THIS FUNCTION SHOULD BE OUTDATED and UNUSED, IT WAS IN THE UGLY VERSION OF THE CODE
         """
         Calculates the qc data y values for the SERRF regression.
 
@@ -624,7 +610,6 @@ class SERRF(BaseEstimator, TransformerMixin):
 
     def _normalize_qc_and_test(
         self,
-        minus,
         metabolite,
         merged,
         qc_group,
@@ -641,9 +626,6 @@ class SERRF(BaseEstimator, TransformerMixin):
 
         Parameters
         ----------
-        minus : bool
-            If True, the normalization is done by subtracting the predicted value,
-            otherwise the normalization is done by dividing the predicted value.
         metabolite : str
             The name of the metabolite to normalize.
         merged : pandas DataFrame
@@ -664,28 +646,14 @@ class SERRF(BaseEstimator, TransformerMixin):
         norm_test : pandas Series
             The normalized test data.
         """
-        if minus:
-            norm_qc = qc_group[metabolite] - (
-                (qc_prediction + qc_group[metabolite].mean())
-                - merged[merged["sampleType"] == "qc"][metabolite].mean()
-            )
-            norm_test = test_group[metabolite] - (
-                (test_prediction + test_group[metabolite].mean())
-                - merged[merged["sampleType"] != "qc"][metabolite].median()
-            )
-        else:
-            norm_qc = qc_group[metabolite] / (
-                (qc_prediction + qc_group[metabolite].mean())
-                / merged[merged["sampleType"] == "qc"][metabolite].mean()
-            )
-            norm_test = test_group[metabolite] / (
-                (
-                    test_prediction
-                    + test_group[metabolite].mean()
-                    - test_prediction.mean()
-                )
-                / merged[merged["sampleType"] != "qc"][metabolite].median()
-            )
+        norm_qc = qc_group[metabolite] / (
+            (qc_prediction + qc_group[metabolite].mean())
+            / merged[merged["sampleType"] == "qc"][metabolite].mean()
+        )
+        norm_test = test_group[metabolite] / (
+            (test_prediction + test_group[metabolite].mean() - test_prediction.mean())
+            / merged[merged["sampleType"] != "qc"][metabolite].median()
+        )
 
         # Set negative values to the original value
         norm_test[norm_test < 0] = test_group[metabolite].loc[
@@ -700,6 +668,8 @@ class SERRF(BaseEstimator, TransformerMixin):
             norm_test.median()
             / merged[merged["sampleType"] != "qc"][metabolite].median()
         )
+        # MANCA FUNZIONE PER RIMPIAZZARE INF O NAN - ORIGINALE QUA SOTTO:
+        # norm[!is.finite(norm)] = rnorm(length(norm[!is.finite(norm)]), sd = sd(norm[is.finite(norm)], na.rm = TRUE) * 0.01)
 
         return norm_qc, norm_test
 
@@ -732,14 +702,6 @@ class SERRF(BaseEstimator, TransformerMixin):
         """
         norm = pd.concat([norm_qc, norm_test]).sort_index()
 
-        ##NOT SURE ABOUT LINE BELOW, WORKS AS INTENDED BUT
-        # VALUES GENERATED ARE VERY LOW (CENTERED ON ZERO);
-        # ANYWAYS, i dont know why infinite data would be generated
-        # norm[~np.isfinite(norm)] = rng.normal(
-        #    scale=np.std(norm[np.isfinite(norm)], ddof=1) * 0.01,
-        #    size=len(norm[~np.isfinite(norm)]),
-        # )
-
         outliers = self._detect_outliers(data=norm, threshold=3)
         outliers = outliers[outliers]
         outliers_in_test = outliers.index.intersection(norm_test.index)
@@ -747,7 +709,7 @@ class SERRF(BaseEstimator, TransformerMixin):
         # Replace outlier values in the test data with the mean of the outlier
         # values in the test data minus the mean of the predicted values for the
         # test data
-        attempt = (
+        replaced_outliers = (
             test_group[metabolite]
             - (
                 (test_prediction + test_group[metabolite].mean())
@@ -759,13 +721,7 @@ class SERRF(BaseEstimator, TransformerMixin):
             )
         ).loc[outliers_in_test]
 
-        if len(outliers) > 0 & len(attempt) > 0:
-            if outliers.mean() > norm.mean():
-                if attempt.mean() < outliers.mean():
-                    norm_test.loc[outliers.index] = attempt
-            else:
-                if attempt.mean() > outliers.mean():
-                    norm_test.loc[outliers.index] = attempt
+        norm_test.loc[outliers.index] = replaced_outliers
 
         # Set negative values to the original value
         if len(norm_test[norm_test < 0]) > 0:
@@ -777,6 +733,7 @@ class SERRF(BaseEstimator, TransformerMixin):
         return norm
 
     def _adjust_normalized_values(self, metabolite, merged, normalized):
+        ###PROBABLY TO REMOVE
         """
         Adjusts the normalized values for the given metabolite using the median of
         the normalized values for the non-qc data and the qc data.
@@ -826,7 +783,7 @@ class SERRF(BaseEstimator, TransformerMixin):
             )
         return normalized
 
-    def _normalize_metabolite(self, merged, metabolite, minus):
+    def _normalize_metabolite(self, merged, metabolite):
         """
         Normalizes the given metabolite by predicting its values using the qc data and
         the other metabolites that are correlated with it.
@@ -867,11 +824,13 @@ class SERRF(BaseEstimator, TransformerMixin):
             top_correlated = list(top_correlated)
             top_correlated.sort()
             # Scale the data
-            qc_data_x = self._scale_data(qc_group, top_correlated)
             test_data_x = self._scale_data(test_group, top_correlated)
+            qc_data_x = self._scale_data(qc_group, top_correlated)
             # Get the target values for the qc data
-            qc_data_y = self._get_qc_data_y(qc_group, test_group, metabolite)
-            # If there is no correlation data, just return the original data
+            # qc_data_y = self._get_qc_data_y(qc_group, test_group, metabolite) #outdated function
+            qc_data_y = self._center_data(qc_group[metabolite])
+
+            # If there is no QC data, just return the original data
             if qc_data_x.empty:
                 norm = group[metabolite]
 
@@ -881,7 +840,6 @@ class SERRF(BaseEstimator, TransformerMixin):
                     qc_data_x, qc_data_y, test_data_x
                 )
                 norm_qc, norm_test = self._normalize_qc_and_test(
-                    minus,
                     metabolite,
                     merged,
                     qc_group,
@@ -897,5 +855,5 @@ class SERRF(BaseEstimator, TransformerMixin):
 
         normalized = pd.concat(normalized)
         # Adjust the normalized values
-        normalized = self._adjust_normalized_values(metabolite, merged, normalized)
+        # normalized = self._adjust_normalized_values(metabolite, merged, normalized)
         return normalized
