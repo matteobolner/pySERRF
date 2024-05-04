@@ -6,5 +6,6 @@ This is simply an attempt to port its functionality from R to python.
 The package structure is based on SKlearn's transformers, with fit and transform methods.
 
 TODO: Implement cross-validation
+TODO: Verify if injection time is accounted for with current code
 TODO: Add documentation
 TODO: Add CLI

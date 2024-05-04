@@ -4,6 +4,26 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.utils.validation import check_is_fitted
 import pandas as pd
 import numpy as np
+from multiprocessing import Pool, RLock, freeze_support
+from tqdm import tqdm
+
+
+def read_and_parse_excel(input_path):
+    data = pd.read_excel(input_path, header=None)
+    data.replace("", np.nan, inplace=True)
+    data = data.transpose()
+    data.columns = data.iloc[1]
+    data = data.iloc[2::]
+    data.columns.name = None
+    data = data.reset_index(drop=True)
+    return data
+
+
+test = read_and_parse_excel("test_data/SERRF example dataset.xlsx")
+a = SERRF(threads=4, batch_column="batch")
+
+
+normalized = a.fit_transform(test)
 
 
 class SERRF(BaseEstimator, TransformerMixin):
@@ -21,14 +41,14 @@ class SERRF(BaseEstimator, TransformerMixin):
 
     - `sample_type_column` is the name of the column in the sample metadata
       with the sample type information (i.e qc or normal sample). The default
-      value is 'SampleType'.
+      value is 'sampleType'.
     - `batch_column` is the name of the column in the sample metadata with the
       batch information. If `None`, all samples are considered as part the same
       batch. The default value is `None`.
     - `sample_metadata_columns` is a list with the names of the columns in the
       sample metadata; it is important to specify all the metadata columns to
       separate them from the metabolite abundance values.
-      The default value is ['SampleType', 'batch', 'label', 'time'].
+      The default value is ['sampleType', 'batch', 'label', 'time'].
     - `random_state` is the random seed used for all methods with a random
       component (i.e numpy normal distribution, sklearn random forest regressor).
       The default value is `None`, which means that a random seed is
@@ -69,11 +89,12 @@ class SERRF(BaseEstimator, TransformerMixin):
 
     def __init__(
         self,
-        sample_type_column="SampleType",
+        sample_type_column="sampleType",
         batch_column=None,
-        sample_metadata_columns=["SampleType", "batch", "label", "time"],
+        sample_metadata_columns=["sampleType", "batch", "label", "time"],
         random_state=None,
         n_correlated_metabolites=10,
+        threads=1,
     ):
         """
         Initialize the class.
@@ -83,7 +104,7 @@ class SERRF(BaseEstimator, TransformerMixin):
         sample_type_column : str, optional
             The name of the column in the sample metadata with the sample type
             information (i.e qc or normal sample). The default value is
-            'SampleType'.
+            'sampleType'.
         batch_column : str or None, optional
             The name of the column in the sample metadata with the batch
             information. If None, all samples are considered as part the same
@@ -92,7 +113,7 @@ class SERRF(BaseEstimator, TransformerMixin):
             A list with the names of the columns in the sample metadata; it is
             important to specify all the metadata columns to separate them from
             the metabolite abundance values. The default value is
-            ['SampleType', 'batch', 'label', 'time'].
+            ['sampleType', 'batch', 'label', 'time'].
         random_state : int, RandomState instance, or None, optional
             The random seed used for all methods with a random component (i.e
             numpy normal distribution, sklearn random forest regressor). The
@@ -143,6 +164,7 @@ class SERRF(BaseEstimator, TransformerMixin):
         self.batch_column = batch_column
         # attributes for the analysis
         self.random_state = random_state
+        self.threads = threads
         self.n_correlated_metabolites = n_correlated_metabolites
         # internal class attributes obtained from preprocessing
         self._metabolites = None
@@ -263,6 +285,20 @@ class SERRF(BaseEstimator, TransformerMixin):
             metadata.
 
         """
+
+        tqdm.set_lock(RLock())  # for managing output contention
+        with Pool(
+            processes=self.threads,
+            initializer=tqdm.set_lock,
+            initargs=(tqdm.get_lock(),),
+        ) as p:
+            normalized = list(
+                tqdm(
+                    p.imap(self._normalize_metabolite_parallel, self._metabolites),
+                    total=len(self._metabolites),
+                )
+            )
+        """
         counter = 0
         normalized = []
         for metabolite in self._metabolites:
@@ -274,6 +310,7 @@ class SERRF(BaseEstimator, TransformerMixin):
                     metabolite,
                 )
             )
+        """
         self.normalized_data_ = pd.concat(normalized, axis=1)
         self.normalized_dataset_ = pd.concat(
             [self._sample_metadata, self.normalized_data_], axis=1
@@ -782,6 +819,9 @@ class SERRF(BaseEstimator, TransformerMixin):
                 normalized.loc[merged[merged["sampleType"] == "qc"].index] * c
             )
         return normalized
+
+    def _normalize_metabolite_parallel(self, metabolite):
+        return self._normalize_metabolite(self._dataset, metabolite)
 
     def _normalize_metabolite(self, merged, metabolite):
         """
