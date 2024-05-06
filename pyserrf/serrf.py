@@ -291,6 +291,9 @@ class SERRF:
                 )
             )
         self.normalized_data_ = pd.concat(normalized_metabolites, axis=1)
+        self.normalized_data_.columns = [
+            self._metabolite_dict[i] for i in self.normalized_data_.columns
+        ]
         self.normalized_dataset_ = pd.concat(
             [self._sample_metadata, self.normalized_data_], axis=1
         )
@@ -591,7 +594,11 @@ class SERRF:
             / self._dataset[self._dataset["sampleType"] == "qc"][metabolite].mean()
         )
         norm_target = target_group[metabolite] / (
-            (target_prediction + target_group[metabolite].mean() - target_prediction.mean())
+            (
+                target_prediction
+                + target_group[metabolite].mean()
+                - target_prediction.mean()
+            )
             / self._dataset[self._dataset["sampleType"] != "qc"][metabolite].median()
         )
 
@@ -666,9 +673,9 @@ class SERRF:
 
         # Set negative values to the original value
         if len(norm_target[norm_target < 0]) > 0:
-            norm_target[norm_target < 0] = target_group.loc[norm_target[norm_target < 0].index][
-                metabolite
-            ]
+            norm_target[norm_target < 0] = target_group.loc[
+                norm_target[norm_target < 0].index
+            ][metabolite]
 
         norm = pd.concat([norm_qc, norm_target]).sort_index()
         return norm
