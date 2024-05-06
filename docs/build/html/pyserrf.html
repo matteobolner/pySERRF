@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>pyserrf package &mdash; pySERRF 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=19f00094" />
+
+  
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="_static/jquery.js?v=5d32c60e"></script>
+        <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+        <script src="_static/documentation_options.js?v=01f34227"></script>
+        <script src="_static/doctools.js?v=888ff710"></script>
+        <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            pySERRF
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <!-- Local TOC -->
+              <div class="local-toc"><ul>
+<li><a class="reference internal" href="#">pyserrf package</a><ul>
+<li><a class="reference internal" href="#submodules">Submodules</a></li>
+<li><a class="reference internal" href="#module-pyserrf.SERRF">pyserrf.serrf module</a><ul>
+<li><a class="reference internal" href="#attributes">Attributes:</a></li>
+<li><a class="reference internal" href="#references">References</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#module-pyserrf">Module contents</a></li>
+</ul>
+</li>
+</ul>
+</div>
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">pySERRF</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">pyserrf package</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/pyserrf.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="pyserrf-package">
+<h1>pyserrf package<a class="headerlink" href="#pyserrf-package" title="Link to this heading"></a></h1>
+<section id="submodules">
+<h2>Submodules<a class="headerlink" href="#submodules" title="Link to this heading"></a></h2>
+</section>
+<section id="module-pyserrf.SERRF">
+<span id="pyserrf-serrf-module"></span><h2>pyserrf.serrf module<a class="headerlink" href="#module-pyserrf.SERRF" title="Link to this heading"></a></h2>
+<p>This class implements the SERRF (Systematical Error Removal using Random Forest) method,
+which is a qc-based sample normalization method designed for large-scale
+untargeted metabolomics data.
+data. The method was developed by the Fan et al. in 2015 <a class="footnote-reference brackets" href="#id2" id="id1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a>
+(see <a class="reference external" href="https://slfan2013.github.io/SERRF-online/">https://slfan2013.github.io/SERRF-online/</a>).</p>
+<p>The class takes as input a pandas DataFrame containing metabolomic data and
+sample metadata, and outputs a pandas DataFrame with the normalized data.</p>
+<p>The class has the following parameters:</p>
+<ul class="simple">
+<li><p><cite>sample_type_column</cite> is the name of the column in the sample metadata
+with the sample type information (i.e qc or normal sample). The default
+value is ‘sampleType’.</p></li>
+<li><p><cite>batch_column</cite> is the name of the column in the sample metadata with the
+batch information. If <cite>None</cite>, all samples are considered as part the same
+batch. The default value is <cite>None</cite>.</p></li>
+<li><p><cite>sample_metadata_columns</cite> is a list with the names of the columns in the
+sample metadata; it is important to specify all the metadata columns to
+separate them from the metabolite abundance values.
+The default value is [‘sampleType’, ‘batch’, ‘label’, ‘time’].</p></li>
+<li><p><cite>random_state</cite> is the random seed used for all methods with a random
+component (i.e numpy normal distribution, sklearn random forest regressor).
+The default value is <cite>None</cite>, which means that a random seed is
+generated automatically. To obtain reproducible results, set a specific
+random seed.</p></li>
+<li><dl class="simple">
+<dt><cite>n_correlated_metabolites</cite> is the number of metabolites with the highest</dt><dd><p>correlation to the metabolite to be normalized. The default value is 10.</p>
+</dd>
+</dl>
+</li>
+</ul>
+<section id="attributes">
+<h3>Attributes:<a class="headerlink" href="#attributes" title="Link to this heading"></a></h3>
+<dl class="simple">
+<dt>_metabolites<span class="classifier">list</span></dt><dd><p>List with the names of the metabolites.</p>
+</dd>
+<dt>_dataset<span class="classifier">pandas DataFrame</span></dt><dd><p>DataFrame with the metabolomic data and the sample metadata.</p>
+</dd>
+<dt>_metabolite_dict<span class="classifier">dict</span></dt><dd><p>Dictionary with the mapping between the original column names and the
+new column names (MET_1, MET_2, etc.).</p>
+</dd>
+<dt>corrs_qc<span class="classifier">pandas DataFrame</span></dt><dd><p>DataFrame with the Pearson correlation coefficients between the
+metabolites and the batch information.</p>
+</dd>
+<dt>corrs_target<span class="classifier">pandas DataFrame</span></dt><dd><p>DataFrame with the Pearson correlation coefficients between the
+metabolites and the samples.</p>
+</dd>
+<dt>normalized_data<span class="classifier">pandas DataFrame</span></dt><dd><p>DataFrame with the normalized data.</p>
+</dd>
+<dt>normalized_dataset<span class="classifier">pandas DataFrame</span></dt><dd><p>DataFrame with the normalized data and the sample metadata.</p>
+</dd>
+</dl>
+</section>
+<section id="references">
+<h3>References<a class="headerlink" href="#references" title="Link to this heading"></a></h3>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="id2" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#id1">1</a><span class="fn-bracket">]</span></span>
+<p>Fan et al.:
+Systematic Error Removal using Random Forest (SERRF) for Normalizing
+Large-Scale Untargeted Lipidomics Data
+Analytical Chemistry DOI: 10.1021/acs.analchem.8b05592
+<a class="reference external" href="https://slfan2013.github.io/SERRF-online/">https://slfan2013.github.io/SERRF-online/</a></p>
+</aside>
+</aside>
+</section>
+</section>
+<section id="module-pyserrf">
+<span id="module-contents"></span><h2>Module contents<a class="headerlink" href="#module-pyserrf" title="Link to this heading"></a></h2>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2024, Matteo Bolner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -66,9 +66,9 @@ class SERRF:
     corrs_target : pandas DataFrame
         DataFrame with the Pearson correlation coefficients between the
         metabolites and the samples.
-    normalized_data_ : pandas DataFrame
+    normalized_data : pandas DataFrame
         DataFrame with the normalized data.
-    normalized_dataset_ : pandas DataFrame
+    normalized_dataset : pandas DataFrame
         DataFrame with the normalized data and the sample metadata.
 
     References
@@ -146,9 +146,9 @@ class SERRF:
         corrs_target : pandas DataFrame
             DataFrame with the Pearson correlation coefficients between the
             metabolites and the samples.
-        normalized_data_ : pandas DataFrame
+        normalized_data : pandas DataFrame
             DataFrame with the normalized data.
-        normalized_dataset_ : pandas DataFrame
+        normalized_dataset : pandas DataFrame
             DataFrame with the normalized data and the sample metadata.
         """
         # attributes for the preprocessing
@@ -166,8 +166,8 @@ class SERRF:
         self._sample_metadata = None
         self._corrs_qc = None
         self._corrs_target = None
-        self.normalized_data_ = None
-        self.normalized_dataset_ = None
+        self.normalized_data = None
+        self.normalized_dataset = None
         self.n_features_ = None
 
     def fit(self, X):
@@ -290,17 +290,17 @@ class SERRF:
                     total=len(self._metabolites),
                 )
             )
-        self.normalized_data_ = pd.concat(normalized_metabolites, axis=1)
-        self.normalized_data_.columns = [
-            self._metabolite_dict[i] for i in self.normalized_data_.columns
+        self.normalized_data = pd.concat(normalized_metabolites, axis=1)
+        self.normalized_data.columns = [
+            self._metabolite_dict[i] for i in self.normalized_data.columns
         ]
-        self.normalized_dataset_ = pd.concat(
-            [self._sample_metadata, self.normalized_data_], axis=1
+        self.normalized_dataset = pd.concat(
+            [self._sample_metadata, self.normalized_data], axis=1
         )
         if return_data_only:
-            X = self.normalized_data_
+            X = self.normalized_data
         else:
-            X = self.normalized_dataset_
+            X = self.normalized_dataset
         return X
 
     def _center_data(self, data: np.ndarray) -> np.ndarray:
