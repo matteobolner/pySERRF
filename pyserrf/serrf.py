@@ -1,10 +1,10 @@
+from multiprocessing import Pool
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.utils.validation import check_is_fitted
 import pandas as pd
 import numpy as np
-from multiprocessing import Pool, RLock, freeze_support
 from tqdm import tqdm
 
 
@@ -19,14 +19,7 @@ def read_and_parse_excel(input_path):
     return data
 
 
-test = read_and_parse_excel("test_data/SERRF example dataset.xlsx")
-a = SERRF(threads=4, batch_column="batch")
-
-
-normalized = a.fit_transform(test)
-
-
-class SERRF(BaseEstimator, TransformerMixin):
+class SERRF:
     """
     This class implements the SERRF (Systematical Error Removal using Random Forest) method,
     which is a qc-based sample normalization method designed for large-scale
@@ -91,7 +84,7 @@ class SERRF(BaseEstimator, TransformerMixin):
         self,
         sample_type_column="sampleType",
         batch_column=None,
-        sample_metadata_columns=["sampleType", "batch", "label", "time"],
+        sample_metadata_columns=("sampleType", "batch", "label", "time"),
         random_state=None,
         n_correlated_metabolites=10,
         threads=1,
@@ -159,7 +152,7 @@ class SERRF(BaseEstimator, TransformerMixin):
             DataFrame with the normalized data and the sample metadata.
         """
         # attributes for the preprocessing
-        self.sample_metadata_columns = sample_metadata_columns
+        self.sample_metadata_columns = list(sample_metadata_columns)
         self.sample_type_column = sample_type_column
         self.batch_column = batch_column
         # attributes for the analysis
@@ -175,6 +168,7 @@ class SERRF(BaseEstimator, TransformerMixin):
         self._corrs_target = None
         self.normalized_data_ = None
         self.normalized_dataset_ = None
+        self.n_features_ = None
 
     def fit(self, X):
         """
@@ -238,10 +232,12 @@ class SERRF(BaseEstimator, TransformerMixin):
 
     def _fit(self, dataset):
         if self.batch_column is None:
-            # Add a batch column if it is not already present
-            dataset["batch"] = 1
-            self.sample_metadata_columns.append("batch")
-
+            if "batch" not in self.sample_metadata_columns:
+                # Add a batch column if it is not already present
+                dataset["batch"] = 1
+                self.sample_metadata_columns.append("batch")
+            else:
+                self.batch_column = "batch"
         self._sample_metadata = dataset[self.sample_metadata_columns]
         data = dataset.drop(columns=self.sample_metadata_columns)
         data = data.astype(float)
@@ -262,7 +258,7 @@ class SERRF(BaseEstimator, TransformerMixin):
         self._dataset = pd.concat([self._sample_metadata, data], axis=1)
 
         self._corrs_qc, self._corrs_target = self._get_corrs_by_sample_type_and_batch(
-            self._dataset, self._metabolites
+            self._metabolites
         )
 
     def _transform(self, X, return_data_only):
@@ -286,32 +282,16 @@ class SERRF(BaseEstimator, TransformerMixin):
 
         """
 
-        tqdm.set_lock(RLock())  # for managing output contention
         with Pool(
             processes=self.threads,
-            initializer=tqdm.set_lock,
-            initargs=(tqdm.get_lock(),),
         ) as p:
-            normalized = list(
+            normalized_metabolites = list(
                 tqdm(
                     p.imap(self._normalize_metabolite_parallel, self._metabolites),
                     total=len(self._metabolites),
                 )
             )
-        """
-        counter = 0
-        normalized = []
-        for metabolite in self._metabolites:
-            counter += 1
-            print(f"{counter}/{len(self._metabolites)}")
-            normalized.append(
-                self._normalize_metabolite(
-                    self._dataset,
-                    metabolite,
-                )
-            )
-        """
-        self.normalized_data_ = pd.concat(normalized, axis=1)
+        self.normalized_data_ = pd.concat(normalized_metabolites, axis=1)
         self.normalized_dataset_ = pd.concat(
             [self._sample_metadata, self.normalized_data_], axis=1
         )
@@ -320,101 +300,6 @@ class SERRF(BaseEstimator, TransformerMixin):
         else:
             X = self.normalized_dataset_
         return X
-
-    def _replace_zero_values(
-        self,
-        values: np.array,
-    ) -> pd.Series:
-        """
-        Replace zero values in a pandas series with a normally distributed
-        random variable. The normal distribution has a mean of the minimum non-NaN value
-        in the values plus 1, and a standard deviation of 10% of the minimum non-NaN value.
-
-        Parameters
-        ----------
-        values : np.array
-            A numpy array
-
-        Returns
-        -------
-        np.array
-            The input array with zero values replaced by normally distributed random
-            variables
-        """
-
-        rng = np.random.default_rng(seed=self.random_state)
-        np.random.seed(self.random_state)
-        # zero_values = row[row == 0].index  # Indices of zero values
-        zero_values = np.where(values == 0)[0]
-        if len(zero_values) == 0:
-            return values
-        min_val = np.nanmin(values)  # Minimum non-NaN value in the row=
-        mean = min_val + 1  # Mean of the normal distribution
-        std = 0.1 * (min_val + 0.1)  # Standard deviation of the normal distribution
-        zero_replacements = rng.normal(
-            loc=mean,
-            scale=std,
-            size=len(zero_values),
-        )
-        values[zero_values] = zero_replacements
-        return values
-
-    def _replace_nan_values(self, values) -> pd.Series:
-        """
-        Replace NaN values in a values of a numpy array with normally distributed
-        random variables. The normal distribution has a mean of half the minimum
-        non-NaN value in the values plus one, and a standard deviation of 10% of the
-        minimum non-NaN value.
-
-        Parameters
-        ----------
-        values : np.array
-            A numpy array
-
-        Returns
-        -------
-        np.array
-            The input values with NaN values replaced by normally distributed random
-            variables
-        """
-        rng = np.random.default_rng(seed=self.random_state)
-        np.random.seed(self.random_state)
-        nan_values = np.where(np.isnan(values))  # Indices of NaN values
-        if len(nan_values) == 0:
-            return values
-        min_non_nan = np.nanmin(values)  # Minimum non-NaN value in the values
-        mean = 0.5 * (min_non_nan + 1)  # Mean of the normal distribution
-        std = 0.1 * (min_non_nan + 0.1)  # Standard deviation of the normal distribution
-        nan_replacements = rng.normal(
-            loc=mean,
-            scale=std,
-            size=len(nan_values),
-        )  # Random variables
-        values[nan_values] = nan_replacements  # Replace NaN values
-        return values  # Return the row with replaced NaN values
-
-    def _check_for_nan_or_zero(self, data):
-        if (0 not in data.values) & (~data.isna().any().any()):
-            return False
-        return True
-
-    def _handle_zero_and_nan(self, merged, metabolites):
-        if self._check_for_nan_or_zero(merged[metabolites]):
-            groups = []
-            for _, group in merged.groupby(by="batch"):
-                if self._check_for_nan_or_zero(group[metabolites]):
-                    group[metabolites] = group[metabolites].apply(
-                        self._replace_zero_values
-                    )
-                    group[metabolites] = group[metabolites].apply(
-                        self._replace_nan_values
-                    )
-                    groups.append(group)
-                else:
-                    groups.append(group)
-            merged = pd.concat(groups)
-            # CHECK ORDER
-        return merged
 
     def _center_data(self, data: np.ndarray) -> np.ndarray:
         mean = np.nanmean(data)
@@ -442,17 +327,39 @@ class SERRF(BaseEstimator, TransformerMixin):
         scaled = pd.DataFrame(scaled, columns=data.columns, index=data.index)
         return scaled
 
-    def _get_corrs_by_sample_type_and_batch(self, merged, metabolites):
+    def _get_corrs_by_sample_type_and_batch(self, metabolites):
+        """
+        Get the correlations by sample type and batch for the given self._dataset data.
+
+        This function calculates the Pearson's r correlation coefficient
+        for the qc and target data for each batch.
+
+        Parameters
+        ----------
+        metabolites : list
+            The list of metabolite names.
+
+        Returns
+        -------
+        corrs_qc : dict
+            The correlations for the qc data, keyed by batch.
+        corrs_target : dict
+            The correlations for the target data, keyed by batch.
+        """
         corrs_qc = {}
         corrs_target = {}
 
-        for batch, group in merged.groupby(by="batch"):
+        for batch, group in self._dataset.groupby(by="batch"):
+            # Get the qc and target data for this batch
             batch_qc = group[group["sampleType"] == "qc"]
             batch_qc_scaled = self._standard_scaler(batch_qc[metabolites])
 
+            # Calculate the correlations for this batch
             corrs_qc[batch] = batch_qc_scaled.corr(method="spearman")
             batch_target = group[group["sampleType"] != "qc"]
             if len(batch_target) == 0:
+                # If there is no target data for this batch, set the
+                # correlation to NaN
                 corrs_target[batch] = np.nan
             else:
                 batch_target_scaled = self._standard_scaler(batch_target[metabolites])
@@ -460,13 +367,48 @@ class SERRF(BaseEstimator, TransformerMixin):
         return corrs_qc, corrs_target
 
     def _get_top_metabolites_in_both_correlations(self, series1, series2, num):
-        selected = set()
-        l = num
-        while len(selected) < num:
-            selected = selected.union(
-                set(series1[0:l].index).intersection(set(series2[0:l].index))
-            )
-            l += 1
+        """
+        Get the top metabolites that are in both of the given correlations.
+
+        Parameters
+        ----------
+        series1 : pandas.Series
+            The first correlation series.
+        series2 : pandas.Series
+            The second correlation series.
+        num : int
+            The number of metabolites to select.
+
+        Returns
+        -------
+        set
+            The names of the top metabolites that are in both correlations.
+
+        Notes
+        -----
+        This function selects the top `num` metabolites that appear in both
+        `series1` and `series2`. It does this by iteratively increasing the
+        number of metabolites selected until it has reached `num` metabolites.
+        """
+
+        def sorted_intersection(list1, list2):
+            """
+            Return the intersection of two lists sorted by their appearance in
+            list1.
+            """
+            return [i for i in list1 if i in list2]
+
+        selected = []
+        for i in range(len(series1)):
+            if len(selected) < num:
+                selected.extend(
+                    sorted_intersection(
+                        series1.iloc[0:i].index, series2.iloc[0:i].index
+                    )
+                )
+            else:
+                break
+        selected = selected[0:num]
         return selected
 
     def _detect_outliers(self, data, threshold=3):
@@ -648,7 +590,6 @@ class SERRF(BaseEstimator, TransformerMixin):
     def _normalize_qc_and_test(
         self,
         metabolite,
-        merged,
         qc_group,
         qc_prediction,
         test_group,
@@ -665,8 +606,6 @@ class SERRF(BaseEstimator, TransformerMixin):
         ----------
         metabolite : str
             The name of the metabolite to normalize.
-        merged : pandas DataFrame
-            The merged data frame containing the data to normalize.
         qc_group : pandas DataFrame
             The qc data group.
         qc_prediction : pandas Series
@@ -685,11 +624,11 @@ class SERRF(BaseEstimator, TransformerMixin):
         """
         norm_qc = qc_group[metabolite] / (
             (qc_prediction + qc_group[metabolite].mean())
-            / merged[merged["sampleType"] == "qc"][metabolite].mean()
+            / self._dataset[self._dataset["sampleType"] == "qc"][metabolite].mean()
         )
         norm_test = test_group[metabolite] / (
             (test_prediction + test_group[metabolite].mean() - test_prediction.mean())
-            / merged[merged["sampleType"] != "qc"][metabolite].median()
+            / self._dataset[self._dataset["sampleType"] != "qc"][metabolite].median()
         )
 
         # Set negative values to the original value
@@ -699,11 +638,12 @@ class SERRF(BaseEstimator, TransformerMixin):
 
         # Normalize the median of the qc and test data to the median of the qc data
         norm_qc = norm_qc / (
-            norm_qc.median() / merged[merged["sampleType"] == "qc"][metabolite].median()
+            norm_qc.median()
+            / self._dataset[self._dataset["sampleType"] == "qc"][metabolite].median()
         )
         norm_test = norm_test / (
             norm_test.median()
-            / merged[merged["sampleType"] != "qc"][metabolite].median()
+            / self._dataset[self._dataset["sampleType"] != "qc"][metabolite].median()
         )
         # MANCA FUNZIONE PER RIMPIAZZARE INF O NAN - ORIGINALE QUA SOTTO:
         # norm[!is.finite(norm)] = rnorm(length(norm[!is.finite(norm)]), sd = sd(norm[is.finite(norm)], na.rm = TRUE) * 0.01)
@@ -758,7 +698,7 @@ class SERRF(BaseEstimator, TransformerMixin):
             )
         ).loc[outliers_in_test]
 
-        norm_test.loc[outliers.index] = replaced_outliers
+        norm_test.loc[outliers_in_test] = replaced_outliers
 
         # Set negative values to the original value
         if len(norm_test[norm_test < 0]) > 0:
@@ -769,69 +709,16 @@ class SERRF(BaseEstimator, TransformerMixin):
         norm = pd.concat([norm_qc, norm_test]).sort_index()
         return norm
 
-    def _adjust_normalized_values(self, metabolite, merged, normalized):
-        ###PROBABLY TO REMOVE
-        """
-        Adjusts the normalized values for the given metabolite using the median of
-        the normalized values for the non-qc data and the qc data.
-
-        The adjustment is done by multiplying the normalized values for the qc
-        data by a factor, which is calculated from the standard deviation of the
-        normalized values for the non-qc data and the median of the normalized
-        values for the qc data.
-
-        The factor is calculated as follows:
-            c = (
-                normalized_median_non_qc_data
-                + (
-                    qc_data_median - non_qc_data_median
-                ) / non_qc_data_stddev
-                * normalized_stddev_non_qc_data
-            ) / qc_data_median
-
-        If c > 0, the normalized values for the qc data are multiplied by c.
-
-        Parameters
-        ----------
-        metabolite : str
-            The name of the metabolite to adjust.
-        merged : pandas DataFrame
-            The merged data frame containing the data to adjust.
-        normalized : pandas Series
-            The normalized data.
-
-        Returns
-        -------
-        normalized : pandas Series
-            The adjusted normalized data.
-        """
-        c = (
-            normalized.loc[merged[merged["sampleType"] != "qc"].index].median()
-            + (
-                merged[merged["sampleType"] == "qc"][metabolite].median()
-                - merged[merged["sampleType"] != "qc"][metabolite].median()
-            )
-            / merged[merged["sampleType"] != "qc"][metabolite].std(ddof=1)
-            * normalized.loc[merged[merged["sampleType"] != "qc"].index].std()
-        ) / normalized.loc[merged[merged["sampleType"] == "qc"].index].median()
-        if c > 0:
-            normalized.loc[merged[merged["sampleType"] == "qc"].index] = (
-                normalized.loc[merged[merged["sampleType"] == "qc"].index] * c
-            )
-        return normalized
-
     def _normalize_metabolite_parallel(self, metabolite):
-        return self._normalize_metabolite(self._dataset, metabolite)
+        return self._normalize_metabolite(metabolite)
 
-    def _normalize_metabolite(self, merged, metabolite):
+    def _normalize_metabolite(self, metabolite):
         """
         Normalizes the given metabolite by predicting its values using the qc data and
         the other metabolites that are correlated with it.
 
         Parameters
         ----------
-        merged : pandas DataFrame
-            The merged data frame containing the data to normalize.
         metabolite : str
             The name of the metabolite to normalize.
 
@@ -840,8 +727,8 @@ class SERRF(BaseEstimator, TransformerMixin):
         normalized : pandas Series
             The normalized data.
         """
-        normalized = []
-        for batch, group in merged.groupby(by="batch"):
+        normalized_metabolite = []
+        for batch, group in self._dataset.groupby(by="batch"):
             # Get the groups for the qc and test data
             qc_group = group[group["sampleType"] == "qc"]
             test_group = group[group["sampleType"] != "qc"]
@@ -856,7 +743,7 @@ class SERRF(BaseEstimator, TransformerMixin):
 
             # Get the top correlated metabolites from both data sets
             top_correlated = self._get_top_metabolites_in_both_correlations(
-                corr_qc_order, corr_target_order, 10
+                corr_target_order, corr_qc_order, 10
             )
             # this is to avoid different order of same 10 metabolites
             # which in turn gives different RF results
@@ -881,7 +768,6 @@ class SERRF(BaseEstimator, TransformerMixin):
                 )
                 norm_qc, norm_test = self._normalize_qc_and_test(
                     metabolite,
-                    merged,
                     qc_group,
                     qc_prediction,
                     test_group,
@@ -891,9 +777,7 @@ class SERRF(BaseEstimator, TransformerMixin):
                     metabolite, norm_qc, norm_test, test_group, test_prediction
                 )
 
-            normalized.append(norm)
+            normalized_metabolite.append(norm)
 
-        normalized = pd.concat(normalized)
-        # Adjust the normalized values
-        # normalized = self._adjust_normalized_values(metabolite, merged, normalized)
-        return normalized
+        normalized_metabolite = pd.concat(normalized_metabolite)
+        return normalized_metabolite
