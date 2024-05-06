@@ -238,6 +238,7 @@ class SERRF:
                 self.sample_metadata_columns.append("batch")
             else:
                 self.batch_column = "batch"
+        dataset[self.sample_type_column] = dataset[self.sample_type_column].str.lower()
         self._sample_metadata = dataset[self.sample_metadata_columns]
         data = dataset.drop(columns=self.sample_metadata_columns)
         data = data.astype(float)
@@ -257,9 +258,7 @@ class SERRF:
         # Concatenate the metadata and data to form the preprocessed dataset
         self._dataset = pd.concat([self._sample_metadata, data], axis=1)
 
-        self._corrs_qc, self._corrs_target = self._get_corrs_by_sample_type_and_batch(
-            self._metabolites
-        )
+        self._corrs_qc, self._corrs_target = self._get_corrs_by_sample_type_and_batch()
 
     def _transform(self, X, return_data_only):
         """
@@ -327,17 +326,46 @@ class SERRF:
         scaled = pd.DataFrame(scaled, columns=data.columns, index=data.index)
         return scaled
 
-    def _get_corrs_by_sample_type_and_batch(self, metabolites):
+    def _group_by_batch(self) -> pd.core.groupby.groupby.GroupBy:
+        """
+        Group the dataset by batch.
+
+        Returns
+        -------
+        pd.core.groupby.groupby.GroupBy
+            The grouped data.
+        """
+        return self._dataset.groupby(by="batch")
+
+    def _split_by_sample_type(
+        self, group: pd.DataFrame
+    ) -> (pd.DataFrame, pd.DataFrame):
+        """
+        Split the given group by sample type.
+
+        Parameters
+        ----------
+        group : pd.DataFrame
+            The data for a single batch.
+
+        Returns
+        -------
+        pd.DataFrame
+            The data for the qc samples in the given batch.
+        pd.DataFrame
+            The data for the target samples in the given batch.
+
+        """
+        qc = group[group["sampleType"] == "qc"]
+        target = group[group["sampleType"] != "qc"]
+        return qc, target
+
+    def _get_corrs_by_sample_type_and_batch(self):
         """
         Get the correlations by sample type and batch for the given self._dataset data.
 
         This function calculates the Pearson's r correlation coefficient
         for the qc and target data for each batch.
-
-        Parameters
-        ----------
-        metabolites : list
-            The list of metabolite names.
 
         Returns
         -------
@@ -349,21 +377,23 @@ class SERRF:
         corrs_qc = {}
         corrs_target = {}
 
-        for batch, group in self._dataset.groupby(by="batch"):
+        for batch, group in self._group_by_batch():
             # Get the qc and target data for this batch
-            batch_qc = group[group["sampleType"] == "qc"]
-            batch_qc_scaled = self._standard_scaler(batch_qc[metabolites])
+            qc_group, target_group = self._split_by_sample_type(group)
+            qc_group = group[group["sampleType"] == "qc"]
+            qc_group_scaled = self._standard_scaler(qc_group[self._metabolites])
 
             # Calculate the correlations for this batch
-            corrs_qc[batch] = batch_qc_scaled.corr(method="spearman")
-            batch_target = group[group["sampleType"] != "qc"]
-            if len(batch_target) == 0:
+            corrs_qc[batch] = qc_group_scaled.corr(method="spearman")
+            if len(target_group) == 0:
                 # If there is no target data for this batch, set the
                 # correlation to NaN
                 corrs_target[batch] = np.nan
             else:
-                batch_target_scaled = self._standard_scaler(batch_target[metabolites])
-                corrs_target[batch] = batch_target_scaled.corr(method="spearman")
+                target_group_scaled = self._standard_scaler(
+                    target_group[self._metabolites]
+                )
+                corrs_target[batch] = target_group_scaled.corr(method="spearman")
         return corrs_qc, corrs_target
 
     def _get_top_metabolites_in_both_correlations(self, series1, series2, num):
@@ -491,79 +521,13 @@ class SERRF:
             return pd.DataFrame()
         return self._standard_scaler(data)
 
-    def _get_factor(self, qc_group, test_group, metabolite):
+    def _predict_values(self, qc_data_x, qc_data_y, target_data_x):
         """
-        Calculates the factor used to normalize the test data for a single metabolite.
-
-        The factor is calculated as the ratio of the standard deviation of the
-        qc data to the standard deviation of the test data.
-
-        Parameters
-        ----------
-        qc_group : pandas DataFrame
-            The qc data for a single batch.
-        test_group : pandas DataFrame
-            The test data for a single batch.
-        metabolite : str
-            The name of the metabolite for which the normalization factor is desired.
-
-        Returns
-        -------
-        float
-            The normalization factor for the given metabolite.
-        """
-        factor = np.std(qc_group[metabolite], ddof=1) / np.std(
-            test_group[metabolite], ddof=1
-        )
-        return factor
-
-    def _get_qc_data_y(self, qc_group, test_group, metabolite):
-        # THIS FUNCTION SHOULD BE OUTDATED and UNUSED, IT WAS IN THE UGLY VERSION OF THE CODE
-        """
-        Calculates the qc data y values for the SERRF regression.
-
-        The qc data y values are calculated as the difference between
-        the qc group mean and the actual values, divided by the factor.
-        If the factor is smaller than 1 or zero, the center_data function is used
-        instead.
-
-        Parameters
-        ----------
-        qc_group : pandas DataFrame
-            The qc data for a single batch.
-        test_group : pandas DataFrame
-            The test data for a single batch.
-        metabolite : str
-            The name of the metabolite for which the qc data y values
-            are desired.
-
-        Returns
-        -------
-        pandas Series
-            The qc data y values for the given metabolite in the given batch.
-        """
-        factor = self._get_factor(qc_group, test_group, metabolite)
-        # If the factor is smaller than 1 or zero, use center_data function instead
-        if (factor == 0) | (factor == np.nan) | (factor < 1):
-            qc_data_y = self._center_data(qc_group[metabolite])
-        else:
-            # If there are more qc data points than in test data,
-            # use the qc data mean as a proxy for the test data mean
-            if len(qc_group[metabolite]) * 2 > len(test_group[metabolite]):
-                qc_data_y = (
-                    qc_group[metabolite] - qc_group[metabolite].mean()
-                ) / factor
-            else:
-                qc_data_y = self._center_data(qc_group[metabolite])
-        return qc_data_y
-
-    def _predict_values(self, qc_data_x, qc_data_y, test_data_x):
-        """
-        Predicts the values of the test data using a random forest regressor.
+        Predicts the values of the target data using a random forest regressor.
 
         The qc data is used to build a random forest regressor, which is then
-        used to predict the values of the test data. The predicted values are returned
-        as a tuple with the qc prediction and the test prediction.
+        used to predict the values of the target data. The predicted values are returned
+        as a tuple with the qc prediction and the target prediction.
 
         Parameters
         ----------
@@ -571,35 +535,35 @@ class SERRF:
             The qc data features.
         qc_data_y : pandas Series
             The qc data targets.
-        test_data_x : pandas DataFrame
-            The test data features.
+        target_data_x : pandas DataFrame
+            The target data features.
 
         Returns
         -------
         tuple
-            A tuple containing the qc prediction and the test prediction.
+            A tuple containing the qc prediction and the target prediction.
         """
         model = RandomForestRegressor(
             n_estimators=500, min_samples_leaf=5, random_state=self.random_state
         )
         model.fit(X=qc_data_x, y=qc_data_y, sample_weight=None)
         qc_prediction = model.predict(qc_data_x)
-        test_prediction = model.predict(test_data_x)
-        return qc_prediction, test_prediction
+        target_prediction = model.predict(target_data_x)
+        return qc_prediction, target_prediction
 
-    def _normalize_qc_and_test(
+    def _normalize_qc_and_target(
         self,
         metabolite,
         qc_group,
         qc_prediction,
-        test_group,
-        test_prediction,
+        target_group,
+        target_prediction,
     ):
         """
-        Normalizes the qc and test data using the same formula.
+        Normalizes the qc and target data using the same formula.
 
         The normalization is based on the mean of the qc data and the median of the
-        non-qc data. The normalization is done separately on the qc and test
+        non-qc data. The normalization is done separately on the qc and target
         data.
 
         Parameters
@@ -610,54 +574,54 @@ class SERRF:
             The qc data group.
         qc_prediction : pandas Series
             The predicted values for the qc data.
-        test_group : pandas DataFrame
-            The test data group.
-        test_prediction : pandas Series
-            The predicted values for the test data.
+        target_group : pandas DataFrame
+            The target data group.
+        target_prediction : pandas Series
+            The predicted values for the target data.
 
         Returns
         -------
         norm_qc : pandas Series
             The normalized qc data.
-        norm_test : pandas Series
-            The normalized test data.
+        norm_target : pandas Series
+            The normalized target data.
         """
         norm_qc = qc_group[metabolite] / (
             (qc_prediction + qc_group[metabolite].mean())
             / self._dataset[self._dataset["sampleType"] == "qc"][metabolite].mean()
         )
-        norm_test = test_group[metabolite] / (
-            (test_prediction + test_group[metabolite].mean() - test_prediction.mean())
+        norm_target = target_group[metabolite] / (
+            (target_prediction + target_group[metabolite].mean() - target_prediction.mean())
             / self._dataset[self._dataset["sampleType"] != "qc"][metabolite].median()
         )
 
         # Set negative values to the original value
-        norm_test[norm_test < 0] = test_group[metabolite].loc[
-            norm_test[norm_test < 0].index
+        norm_target[norm_target < 0] = target_group[metabolite].loc[
+            norm_target[norm_target < 0].index
         ]
 
-        # Normalize the median of the qc and test data to the median of the qc data
+        # Normalize the median of the qc and target data to the median of the qc data
         norm_qc = norm_qc / (
             norm_qc.median()
             / self._dataset[self._dataset["sampleType"] == "qc"][metabolite].median()
         )
-        norm_test = norm_test / (
-            norm_test.median()
+        norm_target = norm_target / (
+            norm_target.median()
             / self._dataset[self._dataset["sampleType"] != "qc"][metabolite].median()
         )
         # MANCA FUNZIONE PER RIMPIAZZARE INF O NAN - ORIGINALE QUA SOTTO:
         # norm[!is.finite(norm)] = rnorm(length(norm[!is.finite(norm)]), sd = sd(norm[is.finite(norm)], na.rm = TRUE) * 0.01)
 
-        return norm_qc, norm_test
+        return norm_qc, norm_target
 
     def _merge_and_normalize(
-        self, metabolite, norm_qc, norm_test, test_group, test_prediction
+        self, metabolite, norm_qc, norm_target, target_group, target_prediction
     ):
         """
-        Merges the qc and test data and normalizes the data using the same
-        formula as normalize_qc_and_test.
+        Merges the qc and target data and normalizes the data using the same
+        formula as normalize_qc_and_target.
 
-        The normalization is done separately on the qc and test data.
+        The normalization is done separately on the qc and target data.
 
         Parameters
         ----------
@@ -665,48 +629,48 @@ class SERRF:
             The name of the metabolite to normalize.
         norm_qc : pandas Series
             The normalized qc data.
-        norm_test : pandas Series
-            The normalized test data.
-        test_group : pandas DataFrame
-            The test data group.
-        test_prediction : pandas Series
-            The predicted values for the test data.
+        norm_target : pandas Series
+            The normalized target data.
+        target_group : pandas DataFrame
+            The target data group.
+        target_prediction : pandas Series
+            The predicted values for the target data.
 
         Returns
         -------
         norm : pandas Series
             The normalized data.
         """
-        norm = pd.concat([norm_qc, norm_test]).sort_index()
+        norm = pd.concat([norm_qc, norm_target]).sort_index()
 
         outliers = self._detect_outliers(data=norm, threshold=3)
         outliers = outliers[outliers]
-        outliers_in_test = outliers.index.intersection(norm_test.index)
+        outliers_in_target = outliers.index.intersection(norm_target.index)
 
-        # Replace outlier values in the test data with the mean of the outlier
-        # values in the test data minus the mean of the predicted values for the
-        # test data
+        # Replace outlier values in the target data with the mean of the outlier
+        # values in the target data minus the mean of the predicted values for the
+        # target data
         replaced_outliers = (
-            test_group[metabolite]
+            target_group[metabolite]
             - (
-                (test_prediction + test_group[metabolite].mean())
+                (target_prediction + target_group[metabolite].mean())
                 - (
                     self._dataset[self._dataset["sampleType"] != "qc"][
                         metabolite
                     ].median()
                 )
             )
-        ).loc[outliers_in_test]
+        ).loc[outliers_in_target]
 
-        norm_test.loc[outliers_in_test] = replaced_outliers
+        norm_target.loc[outliers_in_target] = replaced_outliers
 
         # Set negative values to the original value
-        if len(norm_test[norm_test < 0]) > 0:
-            norm_test[norm_test < 0] = test_group.loc[norm_test[norm_test < 0].index][
+        if len(norm_target[norm_target < 0]) > 0:
+            norm_target[norm_target < 0] = target_group.loc[norm_target[norm_target < 0].index][
                 metabolite
             ]
 
-        norm = pd.concat([norm_qc, norm_test]).sort_index()
+        norm = pd.concat([norm_qc, norm_target]).sort_index()
         return norm
 
     def _normalize_metabolite_parallel(self, metabolite):
@@ -714,9 +678,7 @@ class SERRF:
 
     def _normalize_metabolite(self, metabolite):
         """
-        Normalizes the given metabolite by predicting its values using the qc data and
-        the other metabolites that are correlated with it.
-
+        Normalizes the given metabolite
         Parameters
         ----------
         metabolite : str
@@ -728,10 +690,9 @@ class SERRF:
             The normalized data.
         """
         normalized_metabolite = []
-        for batch, group in self._dataset.groupby(by="batch"):
-            # Get the groups for the qc and test data
-            qc_group = group[group["sampleType"] == "qc"]
-            test_group = group[group["sampleType"] != "qc"]
+        for batch, group in self._group_by_batch():
+            # Get the groups for the qc and target data
+            qc_group, target_group = self._split_by_sample_type(group)
 
             # Get the order of correlation for the qc and target data
             corr_qc_order = self._get_sorted_correlation(
@@ -751,10 +712,10 @@ class SERRF:
             top_correlated = list(top_correlated)
             top_correlated.sort()
             # Scale the data
-            test_data_x = self._scale_data(test_group, top_correlated)
+            target_data_x = self._scale_data(target_group, top_correlated)
             qc_data_x = self._scale_data(qc_group, top_correlated)
             # Get the target values for the qc data
-            # qc_data_y = self._get_qc_data_y(qc_group, test_group, metabolite) #outdated function
+            # qc_data_y = self._get_qc_data_y(qc_group, target_group, metabolite) #outdated function
             qc_data_y = self._center_data(qc_group[metabolite])
 
             # If there is no QC data, just return the original data
@@ -763,18 +724,18 @@ class SERRF:
 
             # Otherwise, predict and normalize the data
             else:
-                qc_prediction, test_prediction = self._predict_values(
-                    qc_data_x, qc_data_y, test_data_x
+                qc_prediction, target_prediction = self._predict_values(
+                    qc_data_x, qc_data_y, target_data_x
                 )
-                norm_qc, norm_test = self._normalize_qc_and_test(
+                norm_qc, norm_target = self._normalize_qc_and_target(
                     metabolite,
                     qc_group,
                     qc_prediction,
-                    test_group,
-                    test_prediction,
+                    target_group,
+                    target_prediction,
                 )
                 norm = self._merge_and_normalize(
-                    metabolite, norm_qc, norm_test, test_group, test_prediction
+                    metabolite, norm_qc, norm_target, target_group, target_prediction
                 )
 
             normalized_metabolite.append(norm)
