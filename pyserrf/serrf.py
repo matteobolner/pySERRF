@@ -434,11 +434,14 @@ class SERRF:
         selected = []
         for i in range(len(series1)):
             if len(selected) < num:
-                selected.extend(
-                    sorted_intersection(
-                        series1.iloc[0:i].index, series2.iloc[0:i].index
-                    )
-                )
+                templist_1 = list(series1.iloc[0:i].index)
+                templist_2 = list(series2.iloc[0:i].index)
+                temp_intersection = sorted_intersection(templist_1, templist_2)
+                for k in temp_intersection:
+                    if k not in selected:
+                        selected.append(k)
+                        if len(selected) == num:
+                            break
             else:
                 break
         selected = selected[0:num]
