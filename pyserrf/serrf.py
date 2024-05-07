@@ -546,7 +546,9 @@ class SERRF:
         tuple
             A tuple containing the qc prediction and the target prediction.
         """
-        model = RandomForestRegressor(n_estimators=500, random_state=self.random_state)
+        model = RandomForestRegressor(
+            n_estimators=500, min_samples_leaf=5, random_state=self.random_state
+        )
         model.fit(X=qc_data_x, y=qc_data_y, sample_weight=None)
         qc_prediction = model.predict(qc_data_x)
         target_prediction = model.predict(target_data_x)
