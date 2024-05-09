@@ -170,6 +170,8 @@ class SERRF:
         self.normalized_data = None
         self.normalized_dataset = None
         self.n_features_ = None
+        self.qc_dataset = None
+        self.target_dataset = None
 
     def fit(self, X):
         """
@@ -259,8 +261,12 @@ class SERRF:
         self.n_features_ = len(self._metabolite_ids)
         # Concatenate the metadata and data to form the preprocessed dataset
         self._dataset = pd.concat([self._sample_metadata, data], axis=1)
-
         self._corrs_qc, self._corrs_target = self._get_corrs_by_sample_type_and_batch()
+
+        self.qc_dataset = self._dataset[self._dataset[self.sample_type_column] == "qc"]
+        self.target_dataset = self._dataset[
+            self._dataset[self.sample_type_column] != "qc"
+        ]
 
     def _transform(self, X, return_data_only):
         """
@@ -596,9 +602,7 @@ class SERRF:
         """
         norm_qc = qc_group[metabolite] / (
             (qc_prediction + qc_group[metabolite].mean())
-            / self._dataset[self._dataset[self.sample_type_column] == "qc"][
-                metabolite
-            ].mean()
+            / self.qc_dataset[metabolite].mean()
         )
         norm_target = target_group[metabolite] / (
             (
@@ -606,9 +610,7 @@ class SERRF:
                 + target_group[metabolite].mean()
                 - target_prediction.mean()
             )
-            / self._dataset[self._dataset[self.sample_type_column] != "qc"][
-                metabolite
-            ].median()
+            / self.target_dataset[metabolite].median()
         )
 
         # Set negative values to the original value
@@ -617,17 +619,9 @@ class SERRF:
         ]
 
         # Normalize the median of the qc and target data to the median of the qc data
-        norm_qc = norm_qc / (
-            norm_qc.median()
-            / self._dataset[self._dataset[self.sample_type_column] == "qc"][
-                metabolite
-            ].median()
-        )
+        norm_qc = norm_qc / (norm_qc.median() / self.qc_dataset[metabolite].median())
         norm_target = norm_target / (
-            norm_target.median()
-            / self._dataset[self._dataset[self.sample_type_column] != "qc"][
-                metabolite
-            ].median()
+            norm_target.median() / self.target_dataset[metabolite].median()
         )
         # MANCA FUNZIONE PER RIMPIAZZARE INF O NAN - ORIGINALE QUA SOTTO:
         # norm[!is.finite(norm)] = rnorm(length(norm[!is.finite(norm)]), sd = sd(norm[is.finite(norm)], na.rm = TRUE) * 0.01)
@@ -674,11 +668,7 @@ class SERRF:
             target_group[metabolite]
             - (
                 (target_prediction + target_group[metabolite].mean())
-                - (
-                    self._dataset[self._dataset[self.sample_type_column] != "qc"][
-                        metabolite
-                    ].median()
-                )
+                - (self.target_dataset[metabolite].median())
             )
         ).loc[outliers_in_target]
 
