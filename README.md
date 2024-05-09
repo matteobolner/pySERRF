@@ -8,7 +8,8 @@ The package structure is based on SKlearn's transformers, with fit and transform
 Documentation can be found at https://pyserrf.readthedocs.io
 
 
-TODO: Implement cross-validation
-TODO: Verify if injection time is accounted for with current code
-TODO: Add documentation
-TODO: Add CLI
+TODO: Implement cross-validation (almost done)
+TODO: Verify if injection time is accounted for with current code 
+TODO: Add documentation 
+TODO: Add more tests 
+TODO: Add CLI 
