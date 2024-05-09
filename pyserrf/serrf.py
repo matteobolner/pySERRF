@@ -160,9 +160,10 @@ class SERRF:
         self.threads = threads
         self.n_correlated_metabolites = n_correlated_metabolites
         # internal class attributes obtained from preprocessing
-        self._metabolites = None
-        self._dataset = None
         self._metabolite_dict = None
+        self._metabolite_ids = None
+        self._metabolite_names = None
+        self._dataset = None
         self._sample_metadata = None
         self._corrs_qc = None
         self._corrs_target = None
@@ -244,17 +245,17 @@ class SERRF:
         data = data.astype(float)
 
         # Create new column names with prefix 'MET_'
-        newcolumns = [f"MET_{i}" for i in range(1, len(data.columns) + 1)]
+        metabolite_ids = [f"MET_{i}" for i in range(1, len(data.columns) + 1)]
 
         # Store the mapping between the new and old column names
-        self._metabolite_dict = dict(zip(newcolumns, data.columns))
-
+        self._metabolite_dict = dict(zip(metabolite_ids, data.columns))
+        self._metabolite_names = list(data.columns)
         # Rename the columns
-        data.columns = newcolumns
+        data.columns = metabolite_ids
 
         # Store the list of metabolite names
-        self._metabolites = list(data.columns)
-        self.n_features_ = len(self._metabolites)
+        self._metabolite_ids = metabolite_ids
+        self.n_features_ = len(self._metabolite_ids)
         # Concatenate the metadata and data to form the preprocessed dataset
         self._dataset = pd.concat([self._sample_metadata, data], axis=1)
 
@@ -286,8 +287,8 @@ class SERRF:
         ) as p:
             normalized_metabolites = list(
                 tqdm(
-                    p.imap(self._normalize_metabolite_parallel, self._metabolites),
-                    total=len(self._metabolites),
+                    p.imap(self._normalize_metabolite_parallel, self._metabolite_ids),
+                    total=len(self._metabolite_ids),
                 )
             )
         self.normalized_data = pd.concat(normalized_metabolites, axis=1)
@@ -384,7 +385,7 @@ class SERRF:
             # Get the qc and target data for this batch
             qc_group, target_group = self._split_by_sample_type(group)
             qc_group = group[group["sampleType"] == "qc"]
-            qc_group_scaled = self._standard_scaler(qc_group[self._metabolites])
+            qc_group_scaled = self._standard_scaler(qc_group[self._metabolite_ids])
 
             # Calculate the correlations for this batch
             corrs_qc[batch] = qc_group_scaled.corr(method="spearman")
@@ -394,7 +395,7 @@ class SERRF:
                 corrs_target[batch] = np.nan
             else:
                 target_group_scaled = self._standard_scaler(
-                    target_group[self._metabolites]
+                    target_group[self._metabolite_ids]
                 )
                 corrs_target[batch] = target_group_scaled.corr(method="spearman")
         return corrs_qc, corrs_target
