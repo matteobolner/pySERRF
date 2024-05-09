@@ -250,6 +250,7 @@ class SERRF:
         # Store the mapping between the new and old column names
         self._metabolite_dict = dict(zip(metabolite_ids, data.columns))
         self._metabolite_names = list(data.columns)
+
         # Rename the columns
         data.columns = metabolite_ids
 
@@ -339,7 +340,7 @@ class SERRF:
         pd.core.groupby.groupby.GroupBy
             The grouped data.
         """
-        return self._dataset.groupby(by="batch")
+        return self._dataset.groupby(by=self.batch_column)
 
     def _split_by_sample_type(
         self, group: pd.DataFrame
@@ -360,8 +361,8 @@ class SERRF:
             The data for the target samples in the given batch.
 
         """
-        qc = group[group["sampleType"] == "qc"]
-        target = group[group["sampleType"] != "qc"]
+        qc = group[group[self.sample_type_column] == "qc"]
+        target = group[group[self.sample_type_column] != "qc"]
         return qc, target
 
     def _get_corrs_by_sample_type_and_batch(self):
@@ -384,7 +385,7 @@ class SERRF:
         for batch, group in self._group_by_batch():
             # Get the qc and target data for this batch
             qc_group, target_group = self._split_by_sample_type(group)
-            qc_group = group[group["sampleType"] == "qc"]
+            qc_group = group[group[self.sample_type_column] == "qc"]
             qc_group_scaled = self._standard_scaler(qc_group[self._metabolite_ids])
 
             # Calculate the correlations for this batch
@@ -595,7 +596,9 @@ class SERRF:
         """
         norm_qc = qc_group[metabolite] / (
             (qc_prediction + qc_group[metabolite].mean())
-            / self._dataset[self._dataset["sampleType"] == "qc"][metabolite].mean()
+            / self._dataset[self._dataset[self.sample_type_column] == "qc"][
+                metabolite
+            ].mean()
         )
         norm_target = target_group[metabolite] / (
             (
@@ -603,7 +606,9 @@ class SERRF:
                 + target_group[metabolite].mean()
                 - target_prediction.mean()
             )
-            / self._dataset[self._dataset["sampleType"] != "qc"][metabolite].median()
+            / self._dataset[self._dataset[self.sample_type_column] != "qc"][
+                metabolite
+            ].median()
         )
 
         # Set negative values to the original value
@@ -614,11 +619,15 @@ class SERRF:
         # Normalize the median of the qc and target data to the median of the qc data
         norm_qc = norm_qc / (
             norm_qc.median()
-            / self._dataset[self._dataset["sampleType"] == "qc"][metabolite].median()
+            / self._dataset[self._dataset[self.sample_type_column] == "qc"][
+                metabolite
+            ].median()
         )
         norm_target = norm_target / (
             norm_target.median()
-            / self._dataset[self._dataset["sampleType"] != "qc"][metabolite].median()
+            / self._dataset[self._dataset[self.sample_type_column] != "qc"][
+                metabolite
+            ].median()
         )
         # MANCA FUNZIONE PER RIMPIAZZARE INF O NAN - ORIGINALE QUA SOTTO:
         # norm[!is.finite(norm)] = rnorm(length(norm[!is.finite(norm)]), sd = sd(norm[is.finite(norm)], na.rm = TRUE) * 0.01)
@@ -666,7 +675,7 @@ class SERRF:
             - (
                 (target_prediction + target_group[metabolite].mean())
                 - (
-                    self._dataset[self._dataset["sampleType"] != "qc"][
+                    self._dataset[self._dataset[self.sample_type_column] != "qc"][
                         metabolite
                     ].median()
                 )
