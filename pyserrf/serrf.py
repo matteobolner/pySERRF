@@ -19,47 +19,34 @@ class SERRF:
     The class takes as input a pandas DataFrame containing metabolomic data and
     sample metadata, and outputs a pandas DataFrame with the normalized data.
 
-    The class has the following parameters:
-
-    - `sample_type_column` is the name of the column in the sample metadata
-      with the sample type information (i.e qc or normal sample). The default
-      value is 'sampleType'.
-    - `batch_column` is the name of the column in the sample metadata with the
-      batch information. If `None`, all samples are considered as part the same
-      batch. The default value is `None`.
-    - `sample_metadata_columns` is a list with the names of the columns in the
-      sample metadata; it is important to specify all the metadata columns to
-      separate them from the metabolite abundance values.
-      The default value is ['sampleType', 'batch', 'label', 'time'].
-    - `random_state` is the random seed used for all methods with a random
-      component (i.e numpy normal distribution, sklearn random forest regressor).
-      The default value is `None`, which means that a random seed is
-      generated automatically. To obtain reproducible results, set a specific
-      random seed.
-
-    - `n_correlated_metabolites` is the number of metabolites with the highest
-        correlation to the metabolite to be normalized. The default value is 10.
-
-    Attributes:
-    -----------
-    _metabolites : list
-        List with the names of the metabolites.
-    _dataset : pandas DataFrame
-        DataFrame with the metabolomic data and the sample metadata.
-    _metabolite_dict : dict
-        Dictionary with the mapping between the original column names and the
-        new column names (MET_1, MET_2, etc.).
-    corrs_qc : pandas DataFrame
-        DataFrame with the Pearson correlation coefficients between the
-        metabolites and the batch information.
-    corrs_target : pandas DataFrame
-        DataFrame with the Pearson correlation coefficients between the
-        metabolites and the samples.
-    normalized_data : pandas DataFrame
-        DataFrame with the normalized data.
-    normalized_dataset : pandas DataFrame
-        DataFrame with the normalized data and the sample metadata.
-
+    Parameters
+    ----------
+    sample_type_column : str, optional
+        The name of the column in the sample metadata with the sample type
+        information (i.e qc or normal sample). The default value is
+        'sampleType'.
+    batch_column : str, optional
+        The name of the column in the sample metadata with the batch
+        information. If None, all samples are considered as part the same
+        batch. The default value is 'batch'.
+    time_column: str, optional
+        The name of the column in the sample metadata with the injection time
+        information.The default value is 'time'.
+    other_columns : list of str or None, optional
+        A list with the names of other metadata columns in the dataset; it is
+        important to specify all the metadata columns to separate them from
+        the metabolite abundance values. The default value is None
+    random_state : int, RandomState instance, or None, optional
+        The random seed used for all methods with a random component (i.e
+        numpy normal distribution, sklearn random forest regressor). The
+        default value is None, which means that a random seed is generated
+        automatically. To obtain reproducible results, set a specific random
+        seed.
+    n_correlated_metabolites : int, optional
+        The number of metabolites with the highest correlation to the
+        metabolite to be normalized. The default value is 10.
+    threads: int, optional
+        Number of threads to use for parallel processing
     References
     ----------
     .. [1] Fan et al.:
@@ -81,70 +68,8 @@ class SERRF:
     ):
         """
         Initialize the class.
-
-        Parameters
-        ----------
-        sample_type_column : str, optional
-            The name of the column in the sample metadata with the sample type
-            information (i.e qc or normal sample). The default value is
-            'sampleType'.
-        batch_column : str, optional
-            The name of the column in the sample metadata with the batch
-            information. If None, all samples are considered as part the same
-            batch. The default value is 'batch'.
-        time_column: str, optional
-            The name of the column in the sample metadata with the injection time
-            information.The default value is 'time'.
-        other_columns : list of str or None, optional
-            A list with the names of other metadata columns in the dataset; it is
-            important to specify all the metadata columns to separate them from
-            the metabolite abundance values. The default value is None
-        random_state : int, RandomState instance, or None, optional
-            The random seed used for all methods with a random component (i.e
-            numpy normal distribution, sklearn random forest regressor). The
-            default value is None, which means that a random seed is generated
-            automatically. To obtain reproducible results, set a specific random
-            seed.
-        n_correlated_metabolites : int, optional
-            The number of metabolites with the highest correlation to the
-            metabolite to be normalized. The default value is 10.
-
-        Attributes
-        ----------
-        sample_metadata_columns : list of str
-            The list of columns in the sample metadata.
-        sample_type_column : str
-            The name of the column in the sample metadata with the sample type
-            information.
-        batch_column : str or None
-            The name of the column in the sample metadata with the batch
-            information.
-        random_state : int, RandomState instance, or None
-            The random seed used for all methods with a random component.
-        n_correlated_metabolites : int
-            The number of metabolites with the highest correlation to the
-            metabolite to be normalized.
-        _metabolites : list of str
-            List with the names of the metabolites.
-        _dataset : pandas DataFrame
-            DataFrame with the metabolomic data and the sample metadata.
-        _metabolite_dict : dict
-            Dictionary with the mapping between the original column names and
-            the new column names (MET_1, MET_2, etc.).
-        _sample_metadata : pandas DataFrame containing the sample metadata.
-        corrs_qc : pandas DataFrame
-            DataFrame with the Pearson correlation coefficients between the
-            metabolites and the batch information.
-        corrs_target : pandas DataFrame
-            DataFrame with the Pearson correlation coefficients between the
-            metabolites and the samples.
-        normalized_data : pandas DataFrame
-            DataFrame with the normalized data.
-        normalized_dataset : pandas DataFrame
-            DataFrame with the normalized data and the sample metadata.
         """
         # attributes for the preprocessing
-        # self.sample_metadata_columns = list(sample_metadata_columns)
         self.sample_type_column = sample_type_column
         self.batch_column = batch_column
         self.time_column = time_column
@@ -290,7 +215,7 @@ class SERRF:
         ) as p:
             normalized_metabolites = list(
                 tqdm(
-                    p.imap(self._normalize_metabolite_parallel, self._metabolite_ids),
+                    p.imap(self._normalize_metabolite, self._metabolite_ids),
                     total=len(self._metabolite_ids),
                 )
             )
@@ -343,10 +268,7 @@ class SERRF:
 
     def _get_corrs_by_sample_type_and_batch(self):
         """
-        Get the correlations by sample type and batch for the given self._dataset data.
-
-        This function calculates the Pearson's r correlation coefficient
-        for the qc and target data for each batch.
+        Get the Spearman's correlations between metabolites grouped by sample type and batch.
 
         Returns
         -------
@@ -414,6 +336,34 @@ class SERRF:
         return norm_qc
 
     def _normalize_target_with_prediction(self, metabolite, group, prediction):
+        """
+        Normalize the target data for the given metabolite using the given prediction.
+
+        The normalization formula is:
+
+        norm_target = target_data / ((prediction + target_data.mean() - prediction.mean())
+                                    / target_dataset.median())
+        norm_target = norm_target / (norm_target.median() / target_dataset.median())
+
+        The normalization is done by dividing the target data by the ratio of the
+        prediction and the median of the target dataset.  The result is then
+        divided by the ratio of the median of the normalized target data and the
+        median of the target dataset.
+
+        Parameters
+        ----------
+        metabolite : str
+            The name of the metabolite to normalize.
+        group : pandas.DataFrame
+            The target data for the given metabolite.
+        prediction : pandas.DataFrame
+            The prediction for the given metabolite.
+
+        Returns
+        -------
+        norm_target : pandas.DataFrame
+            The normalized target data.
+        """
         norm_target = group[metabolite] / (
             (prediction + group[metabolite].mean() - prediction.mean())
             / self.target_dataset[metabolite].median()
@@ -432,10 +382,8 @@ class SERRF:
     ):
         """
         TODO: function could probably be simpler, refactor and maybe split
-        Merges the qc and target data and normalizes the data using the same
-        formula as normalize_qc_and_target.
 
-        The normalization is done separately on the qc and target data.
+        Merges the qc and target data and replaces outliers in the target data.
 
         Parameters
         ----------
@@ -456,7 +404,6 @@ class SERRF:
             The normalized data.
         """
         norm = pd.concat([norm_qc, norm_target]).sort_index()
-
         outliers = utils.detect_outliers(data=norm, threshold=3)
         outliers = outliers[outliers]
         outliers_in_target = outliers.index.intersection(norm_target.index)
@@ -464,6 +411,7 @@ class SERRF:
         # Replace outlier values in the target data with the mean of the outlier
         # values in the target data minus the mean of the predicted values for the
         # target data
+
         replaced_outliers = (
             target_group[metabolite]
             - (
@@ -486,9 +434,6 @@ class SERRF:
         # rnorm(length(norm[!is.finite(norm)]), sd = sd(norm[is.finite(norm)], na.rm = TRUE) * 0.01)
 
         return norm
-
-    def _normalize_metabolite_parallel(self, metabolite):
-        return self._normalize_metabolite(metabolite)
 
     def _normalize_metabolite(self, metabolite):
         """
@@ -544,9 +489,8 @@ class SERRF:
                     metabolite, qc_group, qc_prediction
                 )
                 norm_target = self._normalize_target_with_prediction(
-                    metabolite, qc_group, qc_prediction
+                    metabolite, target_group, target_prediction
                 )
-
                 norm = self._merge_and_normalize(
                     metabolite, norm_qc, norm_target, target_group, target_prediction
                 )
