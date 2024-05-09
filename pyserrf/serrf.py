@@ -165,8 +165,6 @@ class SERRF:
         self._metabolite_names = None
         self._dataset = None
         self._sample_metadata = None
-        self._corrs_qc = None
-        self._corrs_target = None
         self.normalized_data = None
         self.normalized_dataset = None
         self.n_features_ = None
@@ -261,7 +259,6 @@ class SERRF:
         self.n_features_ = len(self._metabolite_ids)
         # Concatenate the metadata and data to form the preprocessed dataset
         self._dataset = pd.concat([self._sample_metadata, data], axis=1)
-        self._corrs_qc, self._corrs_target = self._get_corrs_by_sample_type_and_batch()
 
         self.qc_dataset = self._dataset[self._dataset[self.sample_type_column] == "qc"]
         self.target_dataset = self._dataset[
@@ -699,17 +696,17 @@ class SERRF:
         normalized : pandas Series
             The normalized data.
         """
+        corrs_qc, corrs_target = self._get_corrs_by_sample_type_and_batch()
+
         normalized_metabolite = []
         for batch, group in self._group_by_batch():
             # Get the groups for the qc and target data
             qc_group, target_group = self._split_by_sample_type(group)
 
             # Get the order of correlation for the qc and target data
-            corr_qc_order = self._get_sorted_correlation(
-                self._corrs_qc[batch], metabolite
-            )
+            corr_qc_order = self._get_sorted_correlation(corrs_qc[batch], metabolite)
             corr_target_order = self._get_sorted_correlation(
-                self._corrs_target[batch], metabolite
+                corrs_target[batch], metabolite
             )
 
             # Get the top correlated metabolites from both data sets
