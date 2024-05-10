@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pyserrf"
-version = "0.1.5"
+version = "0.2"
 description = "Python implementation of the Systematic Error Removal Using Random Forest algorithm"
 authors = ["matteobolner <matteo.bolner2@unibo.it>"]
 readme = "README.md"
