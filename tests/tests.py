@@ -59,8 +59,6 @@ class TestStandardScaler:
         pd.testing.assert_frame_equal(result, expected_result)
 
 
-
-
 class TestGetCorrsBySampleTypeAndBatch:
     @pytest.fixture
     def serrf_instance(self):
@@ -83,17 +81,23 @@ class TestGetCorrsBySampleTypeAndBatch:
 
     def test_correlations_calculation(self, serrf_instance):
         corrs_qc, corrs_target = serrf_instance._get_corrs_by_sample_type_and_batch()
-        assert corrs_qc["A"].equals(serrf_instance._dataset[
-            serrf_instance._metabolites
-        ].loc[
-            serrf_instance._dataset[(serrf_instance._dataset["sampleType"] == "qc")&(serrf_instance._dataset["batch"] == "A")].index
-        ].corr(
-            method="spearman"
-        ))
-        assert corrs_target["A"].equals(serrf_instance._dataset[
-            serrf_instance._metabolites
-        ].loc[
-            serrf_instance._dataset[(serrf_instance._dataset["sampleType"] != "qc")&(serrf_instance._dataset["batch"] == "A")].index
-        ].corr(
-            method="spearman"
-        ))
+        assert corrs_qc["A"].equals(
+            serrf_instance._dataset[serrf_instance._metabolites]
+            .loc[
+                serrf_instance._dataset[
+                    (serrf_instance._dataset["sampleType"] == "qc")
+                    & (serrf_instance._dataset["batch"] == "A")
+                ].index
+            ]
+            .corr(method="spearman")
+        )
+        assert corrs_target["A"].equals(
+            serrf_instance._dataset[serrf_instance._metabolites]
+            .loc[
+                serrf_instance._dataset[
+                    (serrf_instance._dataset["sampleType"] != "qc")
+                    & (serrf_instance._dataset["batch"] == "A")
+                ].index
+            ]
+            .corr(method="spearman")
+        )
