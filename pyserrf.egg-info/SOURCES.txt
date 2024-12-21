@@ -1,0 +1,15 @@
+README.md
+pyproject.toml
+pyserrf/CV.py
+pyserrf/__init__.py
+pyserrf/read_data.py
+pyserrf/run.py
+pyserrf/serrf.py
+pyserrf/test2.py
+pyserrf/utils.py
+pyserrf.egg-info/PKG-INFO
+pyserrf.egg-info/SOURCES.txt
+pyserrf.egg-info/dependency_links.txt
+pyserrf.egg-info/requires.txt
+pyserrf.egg-info/top_level.txt
+tests/tests.py
